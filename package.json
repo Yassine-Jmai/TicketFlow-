@@ -1,0 +1,19 @@
+{
+  "name": "ticketflow",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace=@ticketflow/api\" \"npm run dev --workspace=@ticketflow/web\"",
+    "dev:api": "npm run dev --workspace=@ticketflow/api",
+    "dev:web": "npm run dev --workspace=@ticketflow/web",
+    "build": "npm run build --workspaces",
+    "lint": "npm run lint --workspaces"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  }
+}
