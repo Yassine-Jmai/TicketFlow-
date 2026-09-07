@@ -1,0 +1,217 @@
+{
+  "info": {
+    "name": "TicketFlow API Testing",
+    "description": "Collection for testing TicketFlow Tickets API endpoints",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1️⃣ Create Ticket (POST /tickets)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"moduleId\": \"b2fcbf7a-942b-4cde-a529-bb82c98fb885\",\n  \"objet\": \"Bug dans le module Sage 100\",\n  \"description\": \"Le export PDF ne fonctionne pas correctement. Veuillez vérifier la fonction de génération de PDF.\",\n  \"priorite\": \"HAUTE\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/tickets",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["tickets"]
+        }
+      }
+    },
+    {
+      "name": "2️⃣ Get My Tickets (GET /tickets/mine)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/tickets/mine",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["tickets", "mine"]
+        }
+      }
+    },
+    {
+      "name": "3️⃣ Get Ticket Details (GET /tickets/:id)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/tickets/REPLACE_WITH_TICKET_ID",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["tickets", "REPLACE_WITH_TICKET_ID"]
+        }
+      }
+    },
+    {
+      "name": "4️⃣ Get Assigned Tickets (GET /tickets/assigned)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/tickets/assigned",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["tickets", "assigned"]
+        }
+      }
+    },
+    {
+      "name": "5️⃣ Create Compte Rendu (POST /tickets/:id/compte-rendu)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"contenu\": \"J'ai analysé le problème. C'était une fuite mémoire dans la fonction de génération PDF. Le problème a été corrigé et testé avec les fichiers de test fournis.\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/tickets/REPLACE_WITH_TICKET_ID/compte-rendu",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["tickets", "REPLACE_WITH_TICKET_ID", "compte-rendu"]
+        }
+      }
+    },
+    {
+      "name": "6️⃣ Update Status to EN_COURS (PATCH /tickets/:id/statut)",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"newStatus\": \"EN_COURS\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/tickets/REPLACE_WITH_TICKET_ID/statut",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["tickets", "REPLACE_WITH_TICKET_ID", "statut"]
+        }
+      }
+    },
+    {
+      "name": "7️⃣ Update Status to RESOLU (PATCH /tickets/:id/statut)",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"newStatus\": \"RESOLU\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/tickets/REPLACE_WITH_TICKET_ID/statut",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["tickets", "REPLACE_WITH_TICKET_ID", "statut"]
+        }
+      }
+    },
+    {
+      "name": "8️⃣ Update Status to CLOTURE (PATCH /tickets/:id/statut)",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"newStatus\": \"CLOTURE\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/tickets/REPLACE_WITH_TICKET_ID/statut",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["tickets", "REPLACE_WITH_TICKET_ID", "statut"]
+        }
+      }
+    },
+    {
+      "name": "9️⃣ Add Attachment (POST /tickets/:id/attachments)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"nomFichier\": \"rapport_diagnostic.pdf\",\n  \"chemin\": \"/uploads/tickets/REPLACE_WITH_TICKET_ID/rapport_diagnostic.pdf\",\n  \"type\": \"application/pdf\",\n  \"taille\": 2048000\n}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/tickets/REPLACE_WITH_TICKET_ID/attachments",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["tickets", "REPLACE_WITH_TICKET_ID", "attachments"]
+        }
+      }
+    },
+    {
+      "name": "🔟 Get All Attachments (GET /tickets/:id/attachments)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/tickets/REPLACE_WITH_TICKET_ID/attachments",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["tickets", "REPLACE_WITH_TICKET_ID", "attachments"]
+        }
+      }
+    },
+    {
+      "name": "1️⃣1️⃣ Delete Attachment (DELETE /tickets/:id/attachments/:attachmentId)",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/tickets/REPLACE_WITH_TICKET_ID/attachments/REPLACE_WITH_ATTACHMENT_ID",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["tickets", "REPLACE_WITH_TICKET_ID", "attachments", "REPLACE_WITH_ATTACHMENT_ID"]
+        }
+      }
+    }
+  ]
+}

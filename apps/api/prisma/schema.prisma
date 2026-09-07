@@ -35,7 +35,6 @@ model Utilisateur {
   motDePasse    String
   role          Role               @default(CLIENT)
   dateCreation  DateTime           @default(now())
-  ticketsCree   Ticket[]           @relation("TicketCreator")
   ticketsAssigne Ticket[]          @relation("TicketAssignee")
   ticketsClients Ticket[]          @relation("TicketClient")
   historiques   HistoriqueStatut[]  @relation("HistoriqueAuteur")
@@ -68,12 +67,15 @@ model Ticket {
   assigneeId       String?
   assignee         Utilisateur?      @relation("TicketAssignee", fields: [assigneeId], references: [id])
 
-  createdById      String
-  createdBy        Utilisateur       @relation("TicketCreator", fields: [createdById], references: [id])
-
   pieceJointes     PieceJointe[]
   compteRendu      CompteRendu?
   historiques      HistoriqueStatut[]
+
+  @@index([clientId])
+  @@index([assigneeId])
+  @@index([moduleId])
+  @@index([statut])
+  @@index([dateCreation])
 }
 
 model PieceJointe {
@@ -86,6 +88,8 @@ model PieceJointe {
 
   ticketId    String
   ticket      Ticket   @relation(fields: [ticketId], references: [id])
+
+  @@index([ticketId])
 }
 
 model CompteRendu {
@@ -100,7 +104,7 @@ model CompteRendu {
 
 model HistoriqueStatut {
   id             String       @id @default(uuid())
-  ancienStatut   StatutTicket
+  ancienStatut   StatutTicket?
   nouveauStatut  StatutTicket
   dateChangement DateTime     @default(now())
 
@@ -109,4 +113,6 @@ model HistoriqueStatut {
 
   ticketId       String
   ticket         Ticket       @relation(fields: [ticketId], references: [id])
+
+  @@index([ticketId])
 }
