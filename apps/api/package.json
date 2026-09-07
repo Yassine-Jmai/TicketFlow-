@@ -2,7 +2,9 @@
   "name": "@ticketflow/api",
   "private": true,
   "scripts": {
+    "prebuild": "prisma generate",
     "build": "nest build",
+    "predev": "prisma generate",
     "dev": "nest start --watch",
     "start": "node dist/main",
     "lint": "eslint \"src/**/*.ts\""
