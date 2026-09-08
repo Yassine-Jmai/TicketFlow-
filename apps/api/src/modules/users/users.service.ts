@@ -9,6 +9,7 @@ const SAFE_SELECT = {
   nom: true,
   prenom: true,
   email: true,
+  photoUrl: true,
   role: true,
   dateCreation: true
 };
@@ -49,6 +50,22 @@ export class UsersService {
         motDePasse: hashedPassword,
         role: dto.role ?? "CLIENT"
       },
+      select: SAFE_SELECT
+    });
+  }
+
+  async update(id: string, dto: { nom?: string; prenom?: string; email?: string; photoUrl?: string }) {
+    const user = await this.prisma.utilisateur.findUnique({ where: { id } });
+    if (!user) throw new NotFoundException("Utilisateur introuvable");
+
+    if (dto.email && dto.email !== user.email) {
+      const existing = await this.prisma.utilisateur.findUnique({ where: { email: dto.email } });
+      if (existing) throw new ConflictException("Email déjà utilisé");
+    }
+
+    return this.prisma.utilisateur.update({
+      where: { id },
+      data: dto,
       select: SAFE_SELECT
     });
   }

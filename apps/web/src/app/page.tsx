@@ -1,37 +1,153 @@
-export default function HomePage() {
-  return (
-    <main>
-      <div className="shell hero">
-        <section className="panel hero-copy">
-          <p className="eyebrow">TicketFlow platform scaffold</p>
-          <h1>Next.js frontend wired for the ticketing domain.</h1>
-          <p className="lede">
-            This workspace is organized for a Next.js client, a NestJS API, and shared
-            ticketing types so the UI and backend stay aligned with the class diagram.
-          </p>
-        </section>
+"use client";
 
-        <aside className="hero-aside">
-          <div className="panel structure">
-            <h2>Workspace</h2>
-            <ul>
-              <li>apps/web for the Next app</li>
-              <li>apps/api for the Nest API</li>
-              <li>packages/shared for shared domain types</li>
-            </ul>
+import { FormEvent, useState } from "react";
+
+export default function HomePage() {
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setSuccess("");
+    setIsSubmitting(true);
+
+    try {
+      const endpoint = isSignUp ? "/users" : "/auth/login";
+      const body = isSignUp
+        ? { nom: lastName, prenom: firstName, email, motDePasse: password }
+        : { email, motDePasse: password };
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001"}${endpoint}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        }
+      );
+
+      const data = await response.json();
+      if (!response.ok) {
+        const message = Array.isArray(data.message) ? data.message[0] : data.message;
+        throw new Error(message ?? (isSignUp ? "Unable to create your account." : "Unable to sign in."));
+      }
+
+      if (isSignUp) {
+        setIsSignUp(false);
+        setPassword("");
+        setSuccess("Account created. You can sign in now.");
+      } else {
+        window.localStorage.setItem("ticketflow_access_token", data.access_token);
+        window.localStorage.setItem("ticketflow_user", JSON.stringify(data.user));
+        window.location.assign("/dashboard");
+      }
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to sign in.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <main className="auth-page">
+      <section className="auth-intro">
+        <p className="eyebrow">TicketFlow support desk</p>
+        <h1>Keep every customer conversation moving.</h1>
+        <p className="lede">
+          Sign in to manage tickets, follow updates, and keep your support work in one
+          place.
+        </p>
+      </section>
+
+      <section className="auth-card" aria-labelledby="login-title">
+        <div className="auth-card-header">
+          <span className="brand-mark" aria-hidden="true">TF</span>
+          <div>
+            <p className="card-kicker">{isSignUp ? "Get started" : "Welcome back"}</p>
+            <h2 id="login-title">{isSignUp ? "Create your account" : "Sign in to TicketFlow"}</h2>
           </div>
-          <div className="stats">
-            <div className="stat panel">
-              <strong>3</strong>
-              <span>workspace roots</span>
-            </div>
-            <div className="stat panel">
-              <strong>1</strong>
-              <span>ticket domain model</span>
-            </div>
-          </div>
-        </aside>
-      </div>
+        </div>
+
+        <form className="login-form" onSubmit={handleSubmit}>
+          {isSignUp && (
+            <>
+              <label htmlFor="first-name">First name</label>
+              <input
+                id="first-name"
+                name="firstName"
+                type="text"
+                autoComplete="given-name"
+                placeholder="Your first name"
+                value={firstName}
+                onChange={(event) => setFirstName(event.target.value)}
+                required
+              />
+
+              <label htmlFor="last-name">Last name</label>
+              <input
+                id="last-name"
+                name="lastName"
+                type="text"
+                autoComplete="family-name"
+                placeholder="Your last name"
+                value={lastName}
+                onChange={(event) => setLastName(event.target.value)}
+                required
+              />
+            </>
+          )}
+
+          <label htmlFor="email">Email address</label>
+          <input
+            id="email"
+            name="email"
+            type="email"
+            autoComplete="email"
+            placeholder="you@example.com"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            required
+          />
+
+          <label htmlFor="password">Password</label>
+          <input
+            id="password"
+            name="password"
+            type="password"
+            autoComplete="current-password"
+            placeholder="Enter your password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            required
+          />
+
+          <button type="submit" disabled={isSubmitting}>
+            {isSubmitting ? "Please wait..." : isSignUp ? "Create account" : "Sign in"}
+            <span aria-hidden="true"> -&gt;</span>
+          </button>
+        </form>
+
+        {error && <p className="form-message form-error" role="alert">{error}</p>}
+        {success && <p className="form-message form-success" role="status">{success}</p>}
+        <button
+          className="mode-switch"
+          type="button"
+          onClick={() => {
+            setIsSignUp(!isSignUp);
+            setError("");
+            setSuccess("");
+          }}
+        >
+          {isSignUp ? "Already have an account? Sign in" : "Need an account? Create one"}
+        </button>
+        <p className="auth-note">Your workspace is protected by secure account access.</p>
+      </section>
     </main>
   );
 }
