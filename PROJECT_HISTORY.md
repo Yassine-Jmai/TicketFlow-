@@ -194,7 +194,35 @@ The test requests used seeded client and consultant UUIDs while authentication i
 
 ## 9. Current Limitations and Next Steps
 
-- Replace temporary auth headers with `req.user` from the JWT guard provided by the auth work.
-- Add email notifications for status changes.
-- Add unit and integration tests.
-- Continue frontend polishing and add automated coverage for the completed workflows.
+### Still missing
+
+- Push the latest local commit to GitHub:
+  - Local commit: `1328548 Complete ticket workflow and dashboard`.
+  - Current branch: `Gestion_Tickets`.
+  - Required command: `git push origin Gestion_Tickets`.
+- Replace temporary auth headers with the real authenticated user from the JWT guard:
+  - Replace `x-user-id` with `req.user.id`.
+  - Replace `x-user-role` with `req.user.role`.
+  - Authentication and JWT creation remain part of the separate auth work.
+- Add the email notification trigger:
+  - Trigger a notification event whenever a ticket status changes.
+  - Connect the event to the email/authentication service once that service is available.
+- Add automated tests for the completed workflows:
+  - Ticket creation and role-based access.
+  - Client sees only their tickets.
+  - Consultant sees only assigned tickets.
+  - Admin ticket assignment and consultant-role validation.
+  - Valid and invalid status transitions.
+  - Intervention report required before `EN_ATTENTE_CLIENT` and `RESOLU`.
+  - Client validation from `RESOLU` to `CLOTURE`.
+  - Consultant cannot close tickets directly.
+  - Admin cannot perform consultant status transitions.
+  - Admin can delete tickets.
+  - Attachment upload, validation, download, and delete.
+  - Client response attachment on `EN_ATTENTE_CLIENT`.
+  - Automatic closure after seven days.
+- Continue frontend polishing:
+  - Improve spacing and visual hierarchy.
+  - Make role-specific screens clearer.
+  - Add loading and empty states where needed.
+  - Add safer confirmation/error states for destructive actions.

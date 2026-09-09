@@ -196,6 +196,26 @@ function statusActionLabel(currentStatus: TicketStatus, nextStatus: TicketStatus
   return STATUS_ACTION_LABEL[nextStatus];
 }
 
+function InterfaceIcon({
+  name,
+}: {
+  name: "grid" | "pulse" | "clock" | "check" | "refresh";
+}) {
+  const paths = {
+    grid: <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" />,
+    pulse: <path d="M3 12h4l2.2-6 4.1 12 2.2-6H21" />,
+    clock: <path d="M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />,
+    check: <path d="m7 12 3 3 7-7M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />,
+    refresh: <path d="M20 6v5h-5M4 18v-5h5M18.5 9A7 7 0 0 0 6 6.5L4 11m16 2-2 4.5A7 7 0 0 1 5.5 15" />,
+  };
+
+  return (
+    <svg aria-hidden="true" className="interface-icon" viewBox="0 0 24 24">
+      {paths[name]}
+    </svg>
+  );
+}
+
 export default function HomePage() {
   const [role, setRole] = useState<UserRole>("CLIENT");
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -579,10 +599,18 @@ export default function HomePage() {
 
   return (
     <main className="app-shell">
+      <div aria-hidden="true" className="ambient-orb ambient-orb-one" />
+      <div aria-hidden="true" className="ambient-orb ambient-orb-two" />
       <header className="topbar">
-        <div>
-          <p className="eyebrow">TicketFlow</p>
-          <h1>Gestion des tickets</h1>
+        <div className="brand-block">
+          <div aria-hidden="true" className="brand-mark">
+            <span />
+          </div>
+          <div>
+            <p className="eyebrow">TicketFlow <span>// Control center</span></p>
+            <h1>Gestion des tickets</h1>
+            <p className="topbar-subtitle">Pilotez chaque demande, du signal à la résolution.</p>
+          </div>
         </div>
         <div className="topbar-actions">
           <div aria-label="Current role" className="segmented">
@@ -597,34 +625,39 @@ export default function HomePage() {
               </button>
             ))}
           </div>
-          <button className="ghost-button" onClick={() => void loadTickets(role)} type="button">
+          <button className="ghost-button refresh-button" onClick={() => void loadTickets(role)} type="button">
+            <InterfaceIcon name="refresh" />
             Actualiser
           </button>
         </div>
       </header>
 
       <section aria-live="polite" className="status-strip">
-        <span>{isLoading ? "Loading" : message}</span>
-        <span>
+        <span className="system-status"><i className={isLoading ? "loading" : ""} />{isLoading ? "Synchronisation..." : message}</span>
+        <span className="active-identity">
           {currentUser ? `${ROLE_LABEL[role]}: ${userName(currentUser)}` : API_URL}
         </span>
       </section>
 
       <section className="metric-row">
-        <div className="metric">
-          <span>Total</span>
+        <div className="metric metric-total">
+          <span className="metric-icon"><InterfaceIcon name="grid" /></span>
+          <span className="metric-copy">Volume total<small>Tous les tickets</small></span>
           <strong>{stats.total}</strong>
         </div>
-        <div className="metric">
-          <span>Ouverts</span>
+        <div className="metric metric-open">
+          <span className="metric-icon"><InterfaceIcon name="pulse" /></span>
+          <span className="metric-copy">En activité<small>Tickets ouverts</small></span>
           <strong>{stats.open}</strong>
         </div>
-        <div className="metric">
-          <span>En attente</span>
+        <div className="metric metric-waiting">
+          <span className="metric-icon"><InterfaceIcon name="clock" /></span>
+          <span className="metric-copy">En attente<small>Action client</small></span>
           <strong>{stats.waiting}</strong>
         </div>
-        <div className="metric">
-          <span>Résolus</span>
+        <div className="metric metric-resolved">
+          <span className="metric-icon"><InterfaceIcon name="check" /></span>
+          <span className="metric-copy">Résolus<small>Prêts à clôturer</small></span>
           <strong>{stats.resolved}</strong>
         </div>
       </section>
