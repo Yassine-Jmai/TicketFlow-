@@ -3,8 +3,12 @@ node_modules
 dist
 coverage
 *.log
+*.rar
+*.zip
+*.tsbuildinfo
 .env
 .env.local
 .env.*.local
 apps/api/dist
+apps/api/uploads
 apps/web/.next

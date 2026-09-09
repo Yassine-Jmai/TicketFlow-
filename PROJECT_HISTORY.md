@@ -71,12 +71,32 @@ Implemented the following behavior in `TicketsService`:
 - List tickets belonging to a client.
 - List tickets assigned to a consultant.
 - Retrieve an individual ticket with its related data.
-- Change ticket status.
+- Change ticket status through the consultant workflow.
 - Create status-history records for status changes.
+- Enforce the strict ticket status workflow:
+  - `NOUVEAU` to `EN_COURS`.
+  - `EN_COURS` to `EN_ATTENTE_CLIENT` or `RESOLU`.
+  - `EN_ATTENTE_CLIENT` to `EN_COURS`.
+- Keep `RESOLU` to `CLOTURE` behind client validation only.
+- No status changes after `CLOTURE`.
+- Record the initial status-history entry as `NULL` to `NOUVEAU` during ticket creation.
 - Require an intervention report before changing a ticket to `RESOLU`.
-- Add, list, and delete ticket attachments.
+- Require an intervention report before changing a ticket to `EN_ATTENTE_CLIENT`,
+  so the consultant explains what information is missing.
+- Prevent modifications to closed tickets through assignment, reports, and attachments.
+- Validate that assigned users have the `CONSULTANT` role.
+- Store uploaded ticket attachments on disk.
+- Validate uploaded attachment size and MIME type.
+- Add, list, download, and delete ticket attachments.
 - Validate attachment ownership before deletion.
+- Delete the stored file when an attachment is deleted.
+- Allow administrators to delete tickets.
+- Delete dependent ticket records and stored attachment files when an administrator deletes a ticket.
+- When a client uploads an attachment on an `EN_ATTENTE_CLIENT` ticket, automatically
+  return the ticket to `EN_COURS` and record the status history entry.
 - Add intervention reports to tickets.
+- Allow clients to validate a resolved ticket and close it.
+- Automatically close tickets that remain `RESOLU` for seven days.
 
 ### DTO validation
 
@@ -97,15 +117,19 @@ Implemented these endpoints:
 | `GET` | `/tickets/mine` | List the client's tickets |
 | `GET` | `/tickets/assigned` | List the consultant's tickets |
 | `GET` | `/tickets/:id` | Retrieve one ticket |
-| `PATCH` | `/tickets/:id/statut` | Change ticket status |
+| `PATCH` | `/tickets/:id/statut` | Change ticket status through the consultant workflow |
+| `PATCH` | `/tickets/:id/assign` | Assign a ticket to a consultant |
+| `PATCH` | `/tickets/:id/validate` | Client validation and closure of a resolved ticket |
 | `POST` | `/tickets/:id/compte-rendu` | Add an intervention report |
-| `POST` | `/tickets/:id/attachments` | Add an attachment |
+| `POST` | `/tickets/:id/attachments` | Upload an attachment with `multipart/form-data` field `file` |
 | `GET` | `/tickets/:id/attachments` | List attachments |
+| `GET` | `/tickets/:id/attachments/:attachmentId/download` | Download an attachment |
+| `DELETE` | `/tickets/:id` | Delete a ticket as an administrator |
 | `DELETE` | `/tickets/:id/attachments/:attachmentId` | Delete an attachment |
 
 ## 6. Manual API Testing
 
-The development API was started on port `3000` and the main workflows were tested manually.
+The development API was started on port `3001` and the main workflows were tested manually.
 
 Verified behavior included:
 
@@ -128,20 +152,49 @@ The test requests used seeded client and consultant UUIDs while authentication i
 - Investigated why `nest build` completes without creating `apps/api/dist/main.js`.
 - Reinstalled dependencies from the workspace root and confirmed that TypeScript and the Nest CLI are hoisted into the root `node_modules` directory.
 
-### Current build issue
+### Current build status
 
-The API still does not produce `apps/api/dist/main.js`, so `npm start` cannot launch the compiled application. The development API had previously run successfully, but the production-style build output remains unresolved.
+- Confirmed that `npm run build --workspace=@ticketflow/api` completes successfully.
+- Confirmed that the build creates `apps/api/dist/main.js`.
+- The root workspace `npm run dev` command requires the root `concurrently` dependency to be available. Dependencies were reinstalled from the workspace root to restore it.
 
-The root workspace `npm run dev` command also requires the root `concurrently` dependency to be available. Dependencies were reinstalled from the workspace root to restore it.
+## 8. Frontend Implementation
 
-## 8. Current Limitations and Next Steps
+- Added a Next.js operations dashboard for the ticket workflow.
+- Added frontend role switching for the temporary client, consultant, and administrator flows.
+- Added API-backed ticket creation, ticket queues, ticket details, consultant status transitions, assignment, reports, attachment upload/download/delete, administrator ticket delete, and status history display.
+- Aligned the client response flow with the user story:
+  - The consultant uses the intervention report to explain what is missing.
+  - The client reads that report and uploads the missing attachment.
+  - The ticket automatically returns from `EN_ATTENTE_CLIENT` to `EN_COURS`.
+- Added supporting read endpoints for ticket modules, consultants, and administrator ticket listing.
+- Replaced hardcoded controller user IDs with temporary auth headers:
+  - `x-user-id`
+  - `x-user-role`
+- Enforced role-based ticket access:
+  - Clients create tickets, see only their own tickets, and validate resolved tickets.
+  - Consultants see assigned tickets and can update status or reports only for assigned tickets.
+  - Consultants cannot close resolved tickets; closure is done by client validation.
+  - Administrators see all tickets, assign tickets to consultants, and delete tickets.
+  - Administrators cannot perform consultant status transitions.
 
-- Replace hardcoded test UUIDs in the tickets controller with the authenticated user from `req.user`.
-- Connect the tickets module to the authentication and JWT guard provided by the auth work.
-- Add role-based access control.
-- Define and enforce all allowed status transitions.
-- Add automatic closure after seven days where required.
+### Latest workflow and UI corrections
+
+- Removed status-transition action buttons from the administrator ticket detail view.
+- Restricted the backend status update endpoint to consultants only.
+- Removed the consultant `Clôturer` action from the ticket detail view.
+- Blocked direct `CLOTURE` status updates through the consultant status endpoint.
+- Kept client closure on the dedicated validation endpoint, `PATCH /tickets/:id/validate`.
+- Added an administrator-only `Supprimer` action in the ticket detail header.
+- Added backend support for administrator ticket deletion with cleanup of related reports, attachments, status history, and uploaded files.
+- Verified the changes with:
+  - `npx tsc --project apps/api/tsconfig.json --noEmit`
+  - `npx tsc --project apps/web/tsconfig.json --noEmit`
+  - `npm run build --workspace=@ticketflow/api`
+
+## 9. Current Limitations and Next Steps
+
+- Replace temporary auth headers with `req.user` from the JWT guard provided by the auth work.
 - Add email notifications for status changes.
 - Add unit and integration tests.
-- Resolve the API compiled-output issue so `npm run build` creates `apps/api/dist/main.js`.
-- Continue frontend implementation in `apps/web`.
+- Continue frontend polishing and add automated coverage for the completed workflows.

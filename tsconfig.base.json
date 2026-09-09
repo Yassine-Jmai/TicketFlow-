@@ -8,10 +8,9 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true,
-    "baseUrl": ".",
     "paths": {
-      "@ticketflow/shared": ["packages/shared/src/index.ts"],
-      "@ticketflow/shared/*": ["packages/shared/src/*"]
+      "@ticketflow/shared": ["./packages/shared/src/index.ts"],
+      "@ticketflow/shared/*": ["./packages/shared/src/*"]
     }
   }
 }

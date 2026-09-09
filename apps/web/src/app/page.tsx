@@ -1,36 +1,1009 @@
-export default function HomePage() {
-  return (
-    <main>
-      <div className="shell hero">
-        <section className="panel hero-copy">
-          <p className="eyebrow">TicketFlow platform scaffold</p>
-          <h1>Next.js frontend wired for the ticketing domain.</h1>
-          <p className="lede">
-            This workspace is organized for a Next.js client, a NestJS API, and shared
-            ticketing types so the UI and backend stay aligned with the class diagram.
-          </p>
-        </section>
+"use client";
 
-        <aside className="hero-aside">
-          <div className="panel structure">
-            <h2>Workspace</h2>
-            <ul>
-              <li>apps/web for the Next app</li>
-              <li>apps/api for the Nest API</li>
-              <li>packages/shared for shared domain types</li>
-            </ul>
+import type {
+  TicketModule,
+  TicketPriority,
+  TicketStatus,
+  User,
+  UserRole,
+} from "@ticketflow/shared";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+
+const STATUS_FLOW: Record<TicketStatus, TicketStatus[]> = {
+  NOUVEAU: ["EN_COURS"],
+  EN_COURS: ["EN_ATTENTE_CLIENT", "RESOLU"],
+  EN_ATTENTE_CLIENT: ["EN_COURS"],
+  RESOLU: ["CLOTURE"],
+  CLOTURE: [],
+};
+
+const STATUS_LABEL: Record<TicketStatus, string> = {
+  NOUVEAU: "Nouveau",
+  EN_COURS: "En cours",
+  EN_ATTENTE_CLIENT: "En attente client",
+  RESOLU: "Résolu",
+  CLOTURE: "Clôturé",
+};
+
+const PRIORITY_LABEL: Record<TicketPriority, string> = {
+  BASSE: "Basse",
+  MOYENNE: "Moyenne",
+  HAUTE: "Haute",
+};
+
+const ROLE_LABEL: Record<UserRole, string> = {
+  CLIENT: "Client",
+  CONSULTANT: "Consultant",
+  ADMINISTRATEUR: "Administrateur",
+};
+
+const ROLE_QUEUE_LABEL: Record<UserRole, string> = {
+  CLIENT: "Mes tickets",
+  CONSULTANT: "Tickets affectés",
+  ADMINISTRATEUR: "Tous les tickets",
+};
+
+const STATUS_ACTION_LABEL: Record<TicketStatus, string> = {
+  NOUVEAU: "Prendre en charge",
+  EN_COURS: "Reprendre",
+  EN_ATTENTE_CLIENT: "Demander des informations",
+  RESOLU: "Marquer résolu",
+  CLOTURE: "Clôturer",
+};
+
+type Attachment = {
+  id: string;
+  nomFichier: string;
+  chemin: string;
+  type: string;
+  taille: number;
+  dateAjout: string;
+};
+
+type Report = {
+  id: string;
+  contenu: string;
+  dateCreation: string;
+  dateModification: string;
+};
+
+type HistoryEntry = {
+  id: string;
+  ancienStatut: TicketStatus | null;
+  nouveauStatut: TicketStatus;
+  dateChangement: string;
+  auteur?: Pick<User, "id" | "email" | "nom" | "prenom">;
+};
+
+type Ticket = {
+  id: string;
+  numero: string;
+  objet: string;
+  description: string;
+  priorite: TicketPriority;
+  statut: TicketStatus;
+  dateCreation: string;
+  dateModification: string;
+  dateCloture?: string | null;
+  moduleId: string;
+  clientId: string;
+  assigneeId?: string | null;
+  module?: TicketModule;
+  client?: Pick<User, "id" | "email" | "nom" | "prenom">;
+  assignee?: Pick<User, "id" | "email" | "nom" | "prenom"> | null;
+  compteRendu?: Report | null;
+  pieceJointes?: Attachment[];
+  historiques?: HistoryEntry[];
+};
+
+type CreateTicketForm = {
+  moduleId: string;
+  objet: string;
+  description: string;
+  priorite: TicketPriority;
+};
+
+type DevIdentities = Partial<Record<UserRole, User>>;
+
+async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_URL}${path}`, {
+    ...init,
+    headers:
+      init?.body instanceof FormData
+        ? init.headers
+        : {
+            "Content-Type": "application/json",
+            ...init?.headers,
+          },
+  });
+
+  if (!response.ok) {
+    let message = `Request failed with status ${response.status}`;
+
+    try {
+      const body = await response.json();
+      message = Array.isArray(body.message)
+        ? body.message.join(", ")
+        : body.message ?? message;
+    } catch {
+      message = response.statusText || message;
+    }
+
+    throw new Error(message);
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  return response.json() as Promise<T>;
+}
+
+function formatDate(value?: string | null) {
+  if (!value) {
+    return "Not set";
+  }
+
+  return new Intl.DateTimeFormat("fr-FR", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function userName(user?: Pick<User, "nom" | "prenom" | "email"> | null) {
+  if (!user) {
+    return "Non affecté";
+  }
+
+  return `${user.prenom} ${user.nom}`.trim() || user.email;
+}
+
+function statusActionLabel(currentStatus: TicketStatus, nextStatus: TicketStatus) {
+  if (currentStatus === "NOUVEAU" && nextStatus === "EN_COURS") {
+    return "Prendre en charge";
+  }
+
+  if (nextStatus === "EN_ATTENTE_CLIENT") {
+    return "Demander des informations";
+  }
+
+  if (currentStatus === "EN_ATTENTE_CLIENT" && nextStatus === "EN_COURS") {
+    return "Reprendre le traitement";
+  }
+
+  if (nextStatus === "RESOLU") {
+    return "Marquer comme résolu";
+  }
+
+  if (nextStatus === "CLOTURE") {
+    return "Clôturer";
+  }
+
+  return STATUS_ACTION_LABEL[nextStatus];
+}
+
+export default function HomePage() {
+  const [role, setRole] = useState<UserRole>("CLIENT");
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [modules, setModules] = useState<TicketModule[]>([]);
+  const [consultants, setConsultants] = useState<User[]>([]);
+  const [devIdentities, setDevIdentities] = useState<DevIdentities>({});
+  const [selectedTicketId, setSelectedTicketId] = useState<string>("");
+  const [createForm, setCreateForm] = useState<CreateTicketForm>({
+    moduleId: "",
+    objet: "",
+    description: "",
+    priorite: "MOYENNE",
+  });
+  const [reportContent, setReportContent] = useState("");
+  const [assigneeId, setAssigneeId] = useState("");
+  const [createAttachmentFile, setCreateAttachmentFile] = useState<File | null>(null);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [message, setMessage] = useState("Prêt");
+  const [isLoading, setIsLoading] = useState(false);
+  const createFileInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const selectedTicket = useMemo(
+    () => tickets.find((ticket) => ticket.id === selectedTicketId) ?? tickets[0],
+    [selectedTicketId, tickets]
+  );
+
+  const currentUser = devIdentities[role];
+
+  const stats = useMemo(
+    () => ({
+      total: tickets.length,
+      open: tickets.filter((ticket) => ticket.statut !== "CLOTURE").length,
+      waiting: tickets.filter((ticket) => ticket.statut === "EN_ATTENTE_CLIENT").length,
+      resolved: tickets.filter((ticket) => ticket.statut === "RESOLU").length,
+    }),
+    [tickets]
+  );
+
+  async function loadReferenceData() {
+    const [moduleList, consultantList, identities] = await Promise.all([
+      requestJson<TicketModule[]>("/ticket-modules"),
+      requestJson<User[]>("/users/consultants"),
+      requestJson<DevIdentities>("/users/dev-identities"),
+    ]);
+
+    setModules(moduleList);
+    setConsultants(consultantList);
+    setDevIdentities(identities);
+    setCreateForm((current) => ({
+      ...current,
+      moduleId: current.moduleId || moduleList[0]?.id || "",
+    }));
+    setAssigneeId((current) => current || consultantList[0]?.id || "");
+  }
+
+  function getAuthHeaders(currentRole = role) {
+      const actor = devIdentities[currentRole];
+
+    if (!actor) {
+      throw new Error(`Aucune identité de test pour ${ROLE_LABEL[currentRole]}`);
+    }
+
+    return {
+      "x-user-id": actor.id,
+      "x-user-role": actor.role,
+    };
+  }
+
+  async function apiJson<T>(
+    path: string,
+    init?: RequestInit,
+    currentRole = role
+  ): Promise<T> {
+    return requestJson<T>(path, {
+      ...init,
+      headers: {
+        ...getAuthHeaders(currentRole),
+        ...init?.headers,
+      },
+    });
+  }
+
+  async function loadTickets(currentRole = role) {
+    setIsLoading(true);
+
+    try {
+      const path =
+        currentRole === "CLIENT"
+          ? "/tickets/mine"
+          : currentRole === "CONSULTANT"
+            ? "/tickets/assigned"
+            : "/tickets";
+      const ticketList = await apiJson<Ticket[]>(path, undefined, currentRole);
+
+      setTickets(ticketList);
+      setSelectedTicketId((current) =>
+        ticketList.some((ticket) => ticket.id === current)
+          ? current
+          : ticketList[0]?.id || ""
+      );
+      setMessage(`${ticketList.length} ticket(s) chargé(s)`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Impossible de charger les tickets");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadReferenceData().catch((error) => {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Impossible de charger les données de référence"
+      );
+    });
+  }, []);
+
+  useEffect(() => {
+    if (devIdentities[role]) {
+      void loadTickets(role);
+    }
+  }, [role, devIdentities]);
+
+  useEffect(() => {
+    setReportContent(selectedTicket?.compteRendu?.contenu ?? "");
+    setAssigneeId(selectedTicket?.assigneeId || consultants[0]?.id || "");
+  }, [
+    selectedTicket?.id,
+    selectedTicket?.compteRendu?.contenu,
+    selectedTicket?.assigneeId,
+    consultants,
+  ]);
+
+  async function createTicket(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    try {
+      const createdTicket = await apiJson<Ticket>("/tickets", {
+        method: "POST",
+        body: JSON.stringify(createForm),
+      });
+
+      if (createAttachmentFile) {
+        const formData = new FormData();
+        formData.append("file", createAttachmentFile);
+
+        await apiJson<Attachment>(`/tickets/${createdTicket.id}/attachments`, {
+          method: "POST",
+          body: formData,
+        });
+      }
+
+      setMessage(
+        createAttachmentFile
+          ? `${createdTicket.numero} créé avec pièce jointe`
+          : `${createdTicket.numero} créé`
+      );
+      setCreateForm({
+        moduleId: modules[0]?.id || "",
+        objet: "",
+        description: "",
+        priorite: "MOYENNE",
+      });
+      setCreateAttachmentFile(null);
+      if (createFileInputRef.current) {
+        createFileInputRef.current.value = "";
+      }
+      await loadTickets(role);
+      setSelectedTicketId(createdTicket.id);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Impossible de créer le ticket");
+    }
+  }
+
+  async function changeStatus(nextStatus: TicketStatus) {
+    if (!selectedTicket) {
+      return;
+    }
+
+    try {
+      await apiJson<Ticket>(`/tickets/${selectedTicket.id}/statut`, {
+        method: "PATCH",
+        body: JSON.stringify({ newStatus: nextStatus }),
+      });
+      setMessage(`${selectedTicket.numero} passé à ${STATUS_LABEL[nextStatus]}`);
+      await loadTickets(role);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Impossible de changer le statut");
+    }
+  }
+
+  async function closeAsClient() {
+    if (!selectedTicket) {
+      return;
+    }
+
+    try {
+      await apiJson<Ticket>(`/tickets/${selectedTicket.id}/validate`, {
+        method: "PATCH",
+      });
+      setMessage(`${selectedTicket.numero} clôturé`);
+      await loadTickets(role);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Impossible de clôturer le ticket");
+    }
+  }
+
+  async function saveReport(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!selectedTicket) {
+      return;
+    }
+
+    try {
+      await apiJson<Report>(`/tickets/${selectedTicket.id}/compte-rendu`, {
+        method: "POST",
+        body: JSON.stringify({ contenu: reportContent }),
+      });
+      setMessage("Compte rendu enregistré");
+      await loadTickets(role);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Impossible d'enregistrer le compte rendu");
+    }
+  }
+
+  async function assignTicket(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!selectedTicket) {
+      return;
+    }
+
+    try {
+      await apiJson<Ticket>(`/tickets/${selectedTicket.id}/assign`, {
+        method: "PATCH",
+        body: JSON.stringify({ consultantId: assigneeId }),
+      });
+      setMessage("Ticket affecté");
+      await loadTickets(role);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Impossible d'affecter le ticket");
+    }
+  }
+
+  async function deleteTicket() {
+    if (!selectedTicket) {
+      return;
+    }
+
+    const shouldDelete = window.confirm(
+      `Supprimer définitivement ${selectedTicket.numero} ?`
+    );
+
+    if (!shouldDelete) {
+      return;
+    }
+
+    try {
+      await apiJson<Ticket>(`/tickets/${selectedTicket.id}`, {
+        method: "DELETE",
+      });
+      setMessage(`${selectedTicket.numero} supprimé`);
+      setSelectedTicketId("");
+      await loadTickets(role);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Impossible de supprimer le ticket");
+    }
+  }
+
+  async function uploadAttachment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!selectedTicket || !uploadFile) {
+      setMessage("Choisissez une pièce jointe");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", uploadFile);
+
+    try {
+      await apiJson<Attachment>(`/tickets/${selectedTicket.id}/attachments`, {
+        method: "POST",
+        body: formData,
+      });
+      setUploadFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+      setMessage(
+        isClientResponseUpload
+          ? "Réponse envoyée, le ticket repasse en cours"
+          : "Pièce jointe envoyée"
+      );
+      await loadTickets(role);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Impossible d'envoyer la pièce jointe");
+    }
+  }
+
+  async function deleteAttachment(attachmentId: string) {
+    if (!selectedTicket) {
+      return;
+    }
+
+    try {
+      await apiJson<Attachment>(
+        `/tickets/${selectedTicket.id}/attachments/${attachmentId}`,
+        { method: "DELETE" }
+      );
+      setMessage("Pièce jointe supprimée");
+      await loadTickets(role);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Impossible de supprimer la pièce jointe");
+    }
+  }
+
+  async function downloadAttachment(attachment: Attachment) {
+    if (!selectedTicket) {
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `${API_URL}/tickets/${selectedTicket.id}/attachments/${attachment.id}/download`,
+        {
+          headers: getAuthHeaders(),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(response.statusText || "Impossible de télécharger la pièce jointe");
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = attachment.nomFichier;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Impossible de télécharger la pièce jointe");
+    }
+  }
+
+  function updateCreateForm<K extends keyof CreateTicketForm>(
+    key: K,
+    value: CreateTicketForm[K]
+  ) {
+    setCreateForm((current) => ({ ...current, [key]: value }));
+  }
+
+  const nextStatuses = selectedTicket
+    ? STATUS_FLOW[selectedTicket.statut].filter((status) => status !== "CLOTURE")
+    : [];
+  const canCreateTicket = role === "CLIENT";
+  const canChangeStatus = role === "CONSULTANT";
+  const canAssignTicket = role === "ADMINISTRATEUR";
+  const canDeleteTicket = role === "ADMINISTRATEUR";
+  const canEditReport = role === "CONSULTANT";
+  const canValidateTicket = role === "CLIENT" && selectedTicket?.statut === "RESOLU";
+  const isClientResponseUpload =
+    role === "CLIENT" && selectedTicket?.statut === "EN_ATTENTE_CLIENT";
+  const hasSavedReport = Boolean(selectedTicket?.compteRendu?.contenu?.trim());
+  const reportTitle = isClientResponseUpload
+    ? "Demande du consultant"
+    : "Compte rendu d'intervention";
+  const reportState = isClientResponseUpload
+    ? "Réponse attendue"
+    : selectedTicket?.compteRendu
+      ? "Enregistré"
+      : "Requis pour attente/résolution";
+  const canUploadAttachment =
+    Boolean(selectedTicket) && selectedTicket?.statut !== "CLOTURE";
+
+  return (
+    <main className="app-shell">
+      <header className="topbar">
+        <div>
+          <p className="eyebrow">TicketFlow</p>
+          <h1>Gestion des tickets</h1>
+        </div>
+        <div className="topbar-actions">
+          <div aria-label="Current role" className="segmented">
+            {(Object.keys(ROLE_LABEL) as UserRole[]).map((item) => (
+              <button
+                className={role === item ? "active" : ""}
+                key={item}
+                onClick={() => setRole(item)}
+                type="button"
+              >
+                {ROLE_LABEL[item]}
+              </button>
+            ))}
           </div>
-          <div className="stats">
-            <div className="stat panel">
-              <strong>3</strong>
-              <span>workspace roots</span>
+          <button className="ghost-button" onClick={() => void loadTickets(role)} type="button">
+            Actualiser
+          </button>
+        </div>
+      </header>
+
+      <section aria-live="polite" className="status-strip">
+        <span>{isLoading ? "Loading" : message}</span>
+        <span>
+          {currentUser ? `${ROLE_LABEL[role]}: ${userName(currentUser)}` : API_URL}
+        </span>
+      </section>
+
+      <section className="metric-row">
+        <div className="metric">
+          <span>Total</span>
+          <strong>{stats.total}</strong>
+        </div>
+        <div className="metric">
+          <span>Ouverts</span>
+          <strong>{stats.open}</strong>
+        </div>
+        <div className="metric">
+          <span>En attente</span>
+          <strong>{stats.waiting}</strong>
+        </div>
+        <div className="metric">
+          <span>Résolus</span>
+          <strong>{stats.resolved}</strong>
+        </div>
+      </section>
+
+      <div className="workspace">
+        <aside className="left-rail">
+          {canCreateTicket ? (
+            <form className="tool-panel" onSubmit={createTicket}>
+              <div className="panel-heading">
+                <h2>Nouveau ticket</h2>
+              </div>
+              <label>
+                Module
+                <select
+                  onChange={(event) => updateCreateForm("moduleId", event.target.value)}
+                  required
+                  value={createForm.moduleId}
+                >
+                  {modules.map((module) => (
+                    <option key={module.id} value={module.id}>
+                      {module.nom}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Objet
+                <input
+                  onChange={(event) => updateCreateForm("objet", event.target.value)}
+                  required
+                  value={createForm.objet}
+                />
+              </label>
+              <label>
+                Description
+                <textarea
+                  onChange={(event) => updateCreateForm("description", event.target.value)}
+                  required
+                  rows={4}
+                  value={createForm.description}
+                />
+              </label>
+              <label>
+                Priorité
+                <select
+                  onChange={(event) =>
+                    updateCreateForm("priorite", event.target.value as TicketPriority)
+                  }
+                  value={createForm.priorite}
+                >
+                  {(Object.keys(PRIORITY_LABEL) as TicketPriority[]).map((priority) => (
+                    <option key={priority} value={priority}>
+                      {PRIORITY_LABEL[priority]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Pièce jointe optionnelle
+                <input
+                  onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                    setCreateAttachmentFile(event.target.files?.[0] ?? null)
+                  }
+                  ref={createFileInputRef}
+                  type="file"
+                />
+              </label>
+              <button className="primary-button" disabled={!modules.length} type="submit">
+                Créer le ticket
+              </button>
+            </form>
+          ) : (
+            <section className="tool-panel">
+              <div className="panel-heading">
+                <h2>Espace {ROLE_LABEL[role]}</h2>
+              </div>
+              <p className="empty-text">
+                {role === "CONSULTANT"
+                  ? "Les tickets affectés sont affichés ci-dessous."
+                  : "Les tickets sont disponibles pour supervision et affectation."}
+              </p>
+            </section>
+          )}
+
+          <section className="ticket-list">
+            <div className="panel-heading">
+              <h2>{ROLE_QUEUE_LABEL[role]}</h2>
+              <span>{tickets.length}</span>
             </div>
-            <div className="stat panel">
-              <strong>1</strong>
-              <span>ticket domain model</span>
-            </div>
-          </div>
+            {tickets.length ? (
+              tickets.map((ticket) => (
+                <article
+                  className={`ticket-row ${selectedTicket?.id === ticket.id ? "selected" : ""}`}
+                  key={ticket.id}
+                  onClick={() => setSelectedTicketId(ticket.id)}
+                >
+                  <span>
+                    <strong>{ticket.numero}</strong>
+                    <small>{ticket.objet}</small>
+                  </span>
+                  <em className={`status ${ticket.statut.toLowerCase()}`}>
+                    {STATUS_LABEL[ticket.statut]}
+                  </em>
+                </article>
+              ))
+            ) : (
+              <p className="empty-text">Aucun ticket trouvé.</p>
+            )}
+          </section>
         </aside>
+
+        <section className="detail-area">
+          {selectedTicket ? (
+            <>
+              <div className="ticket-header">
+                <div>
+                  <p className="eyebrow">{selectedTicket.numero}</p>
+                  <h2>{selectedTicket.objet}</h2>
+                  <p>{selectedTicket.description}</p>
+                </div>
+                <div className="ticket-header-actions">
+                  <em className={`status large ${selectedTicket.statut.toLowerCase()}`}>
+                    {STATUS_LABEL[selectedTicket.statut]}
+                  </em>
+                  {canDeleteTicket ? (
+                    <button
+                      className="danger-button"
+                      onClick={() => void deleteTicket()}
+                      type="button"
+                    >
+                      Supprimer
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="info-grid">
+                <div>
+                  <span>Module</span>
+                  <strong>{selectedTicket.module?.nom ?? selectedTicket.moduleId}</strong>
+                </div>
+                <div>
+                  <span>Priorité</span>
+                  <strong>{PRIORITY_LABEL[selectedTicket.priorite]}</strong>
+                </div>
+                <div>
+                  <span>Client</span>
+                  <strong>{userName(selectedTicket.client)}</strong>
+                </div>
+                <div>
+                  <span>Consultant</span>
+                  <strong>{userName(selectedTicket.assignee)}</strong>
+                </div>
+                <div>
+                  <span>Créé le</span>
+                  <strong>{formatDate(selectedTicket.dateCreation)}</strong>
+                </div>
+                <div>
+                  <span>Clôturé le</span>
+                  <strong>{formatDate(selectedTicket.dateCloture)}</strong>
+                </div>
+              </div>
+
+              <section className="action-grid">
+                {!canAssignTicket ? (
+                  <div className="tool-panel">
+                    <div className="panel-heading">
+                      <h3>Statut</h3>
+                    </div>
+                    <div className="button-row">
+                      {canChangeStatus
+                        ? nextStatuses.map((status) => (
+                            <button
+                              className="primary-button"
+                              disabled={
+                                (status === "EN_ATTENTE_CLIENT" || status === "RESOLU") &&
+                                !hasSavedReport
+                              }
+                              key={status}
+                              onClick={() => void changeStatus(status)}
+                              type="button"
+                            >
+                              {statusActionLabel(selectedTicket.statut, status)}
+                            </button>
+                          ))
+                        : null}
+                      {canValidateTicket ? (
+                        <button
+                          className="primary-button"
+                          onClick={() => void closeAsClient()}
+                          type="button"
+                        >
+                          Valider et clôturer
+                        </button>
+                      ) : null}
+                      {!canChangeStatus && !canValidateTicket ? (
+                        <p className="empty-text">Le changement de statut est réservé au consultant.</p>
+                      ) : null}
+                      {canChangeStatus && nextStatuses.length === 0 ? (
+                        <p className="empty-text">Aucune transition disponible.</p>
+                      ) : null}
+                      {canChangeStatus &&
+                      nextStatuses.some(
+                        (status) => status === "EN_ATTENTE_CLIENT" || status === "RESOLU"
+                      ) &&
+                      !hasSavedReport ? (
+                        <p className="empty-text">Compte rendu requis.</p>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+
+                {canAssignTicket ? (
+                  <form className="tool-panel" onSubmit={assignTicket}>
+                    <div className="panel-heading">
+                      <h3>Assignment</h3>
+                    </div>
+                    <label>
+                      Consultant
+                      <select
+                        disabled={selectedTicket.statut === "CLOTURE"}
+                        onChange={(event) => setAssigneeId(event.target.value)}
+                        value={assigneeId}
+                      >
+                        {consultants.map((consultant) => (
+                          <option key={consultant.id} value={consultant.id}>
+                            {userName(consultant)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      className="secondary-button"
+                      disabled={!assigneeId || selectedTicket.statut === "CLOTURE"}
+                      type="submit"
+                    >
+                      Assign
+                    </button>
+                  </form>
+                ) : null}
+
+                {canEditReport ? (
+                  <form className="tool-panel wide" onSubmit={saveReport}>
+                    <div className="panel-heading">
+                      <h3>Compte rendu / demande client</h3>
+                      <span>{reportState}</span>
+                    </div>
+                    <textarea
+                      disabled={selectedTicket.statut === "CLOTURE"}
+                      onChange={(event) => setReportContent(event.target.value)}
+                      required
+                      rows={5}
+                      value={reportContent}
+                    />
+                    <button
+                      className="secondary-button"
+                      disabled={selectedTicket.statut === "CLOTURE"}
+                      type="submit"
+                    >
+                      Enregistrer
+                    </button>
+                  </form>
+                ) : (
+                  <section
+                    className={`tool-panel wide ${
+                      isClientResponseUpload ? "attention-panel" : ""
+                    }`}
+                  >
+                    <div className="panel-heading">
+                      <h3>{reportTitle}</h3>
+                      <span>{reportState}</span>
+                    </div>
+                    <div className="report-display">
+                      {selectedTicket.compteRendu?.contenu || "Aucun compte rendu."}
+                    </div>
+                  </section>
+                )}
+
+                <section
+                  className={`tool-panel wide ${
+                    isClientResponseUpload ? "attention-panel" : ""
+                  }`}
+                >
+                  <div className="panel-heading">
+                    <h3>
+                      {isClientResponseUpload
+                        ? "Envoyer les éléments demandés"
+                        : "Pièces jointes"}
+                    </h3>
+                    <span>
+                      {isClientResponseUpload
+                        ? "Réponse client"
+                        : selectedTicket.pieceJointes?.length ?? 0}
+                    </span>
+                  </div>
+                  <form className="upload-row" onSubmit={uploadAttachment}>
+                    <input
+                      disabled={!canUploadAttachment}
+                      onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                        setUploadFile(event.target.files?.[0] ?? null)
+                      }
+                      ref={fileInputRef}
+                      type="file"
+                    />
+                    <button
+                      className="secondary-button"
+                      disabled={!uploadFile || !canUploadAttachment}
+                      type="submit"
+                    >
+                      {isClientResponseUpload ? "Envoyer la réponse" : "Ajouter"}
+                    </button>
+                  </form>
+                  <div className="attachment-list">
+                    {(selectedTicket.pieceJointes ?? []).map((attachment) => (
+                      <div className="attachment-row" key={attachment.id}>
+                        <span>
+                          <strong>{attachment.nomFichier}</strong>
+                          <small>
+                            {formatBytes(attachment.taille)} - {attachment.type}
+                          </small>
+                        </span>
+                        <div>
+                          <button
+                            className="ghost-button compact"
+                            onClick={() => void downloadAttachment(attachment)}
+                            type="button"
+                          >
+                            Télécharger
+                          </button>
+                          <button
+                            className="danger-button compact"
+                            disabled={selectedTicket.statut === "CLOTURE"}
+                            onClick={() => void deleteAttachment(attachment.id)}
+                            type="button"
+                          >
+                            Supprimer
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {selectedTicket.pieceJointes?.length ? null : (
+                      <p className="empty-text">Aucune pièce jointe.</p>
+                    )}
+                  </div>
+                </section>
+
+                <section className="tool-panel wide">
+                  <div className="panel-heading">
+                    <h3>Historique des statuts</h3>
+                  </div>
+                  <div className="history-list">
+                    {(selectedTicket.historiques ?? []).map((history) => (
+                      <div className="history-row" key={history.id}>
+                        <span>
+                          <strong>
+                            {history.ancienStatut
+                              ? STATUS_LABEL[history.ancienStatut]
+                              : "Création"}{" "}
+                            vers {STATUS_LABEL[history.nouveauStatut]}
+                          </strong>
+                          <small>{userName(history.auteur)}</small>
+                        </span>
+                        <time>{formatDate(history.dateChangement)}</time>
+                      </div>
+                    ))}
+                    {selectedTicket.historiques?.length ? null : (
+                      <p className="empty-text">Aucun historique.</p>
+                    )}
+                  </div>
+                </section>
+              </section>
+            </>
+          ) : (
+            <div className="empty-state">
+              <h2>Aucun ticket sélectionné</h2>
+              <p>Créez un ticket ou changez d'espace.</p>
+            </div>
+          )}
+        </section>
       </div>
     </main>
   );
