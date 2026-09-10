@@ -33,6 +33,8 @@ export class EmailService {
     });
 
     if (!response.ok) {
+      const details = await response.text();
+      console.error(`[Brevo] Email rejected (${response.status}): ${details}`);
       throw new ServiceUnavailableException("Brevo could not send the email");
     }
   }
@@ -56,5 +58,14 @@ export class EmailService {
     message: string;
   }) {
     await this.sendEmail(recipientEmail, recipientName, subject, `<p>Hello ${recipientName},</p><p>${message}</p><p>TicketFlow support desk</p>`);
+  }
+
+  async sendPasswordResetCode(recipientEmail: string, recipientName: string, code: string) {
+    await this.sendEmail(
+      recipientEmail,
+      recipientName,
+      "Your TicketFlow password reset code",
+      `<p>Hello ${recipientName},</p><p>Use this code to reset your TicketFlow password:</p><p style="font-size: 28px; font-weight: bold; letter-spacing: 6px;">${code}</p><p>This code expires in 1 hour. If you did not request this, you can ignore this email.</p>`
+    );
   }
 }

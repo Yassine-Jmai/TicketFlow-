@@ -1,6 +1,8 @@
 import { Body, Controller, Get, Post, Query, UsePipes, ValidationPipe } from "@nestjs/common";
 import { AuthService } from "./auth.service";
 import { LoginDto } from "./dto/login.dto";
+import { ForgotPasswordDto } from "./dto/forgot-password.dto";
+import { ResetPasswordDto } from "./dto/reset-password.dto";
 import { UsersService } from "../users/users.service";
 
 @Controller("auth")
@@ -14,6 +16,18 @@ export class AuthController {
   @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
+  }
+
+  @Post("forgot-password")
+  @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
+  forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(dto);
+  }
+
+  @Post("reset-password")
+  @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
+  resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(dto);
   }
 
   @Get("verify-email")

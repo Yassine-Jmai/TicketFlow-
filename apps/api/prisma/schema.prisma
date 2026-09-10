@@ -39,6 +39,8 @@ model Utilisateur {
   verificationTokenHash String?
   verificationCodeHash String?
   verificationExpiresAt DateTime?
+  passwordResetCodeHash String?
+  passwordResetExpiresAt DateTime?
   dateCreation  DateTime           @default(now())
   ticketsCree   Ticket[]           @relation("TicketCreator")
   ticketsAssigne Ticket[]          @relation("TicketAssignee")
