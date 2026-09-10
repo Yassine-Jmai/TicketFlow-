@@ -127,14 +127,15 @@ export default function ProfilePage() {
 
         <section className="profile-card">
           <div className="profile-card-topline">
-            {(isEditing ? photoUrl : user?.photoUrl) ? (
-              <img className="profile-avatar profile-photo" src={isEditing ? photoUrl : user?.photoUrl ?? ""} alt="Profile" />
-            ) : (
-              <div className="profile-avatar" aria-hidden="true">
-                {user ? `${user.prenom[0]}${user.nom[0]}` : "TF"}
-              </div>
-            )}
-            {!isEditing && <button className="edit-profile-button" type="button" onClick={startEditing}>Edit profile</button>}
+            <button className="profile-photo-trigger" type="button" onClick={startEditing} aria-label="Edit profile photo and information">
+              {(isEditing ? photoUrl : user?.photoUrl) ? (
+                <img className="profile-avatar profile-photo" src={isEditing ? photoUrl : user?.photoUrl ?? ""} alt="Profile" />
+              ) : (
+                <span className="profile-avatar" aria-hidden="true">
+                  {user ? `${user.prenom[0]}${user.nom[0]}` : "TF"}
+                </span>
+              )}
+            </button>
           </div>
 
           {isEditing ? (

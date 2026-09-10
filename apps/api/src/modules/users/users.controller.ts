@@ -5,6 +5,9 @@ import type { Request } from "express";
 import { UsersService } from "./users.service";
 import { CreateUserDto } from "./dto/create-user.dto";
 import { UpdateUserDto } from "./dto/update-user.dto";
+import { UpdateRoleDto } from "./dto/update-role.dto";
+import { Roles } from "../auth/roles.decorator";
+import { RolesGuard } from "../auth/roles.guard";
 
 type AuthenticatedRequest = Request & { user: { userId: string } };
 
@@ -13,6 +16,8 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Get()
+  @UseGuards(AuthGuard("jwt"), RolesGuard)
+  @Roles("ADMINISTRATEUR")
   findAll(@Query("role") role?: string) {
     return this.usersService.findAll(role);
   }
@@ -33,5 +38,13 @@ export class UsersController {
   @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
   updateMe(@Req() request: AuthenticatedRequest, @Body() dto: UpdateUserDto) {
     return this.usersService.update(request.user.userId, dto);
+  }
+
+  @Put(":id/role")
+  @UseGuards(AuthGuard("jwt"), RolesGuard)
+  @Roles("ADMINISTRATEUR")
+  @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
+  updateRole(@Param("id") id: string, @Body() dto: UpdateRoleDto) {
+    return this.usersService.updateRole(id, dto);
   }
 }

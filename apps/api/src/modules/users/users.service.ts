@@ -3,6 +3,7 @@ import { Injectable, ConflictException, NotFoundException } from "@nestjs/common
 import * as bcrypt from "bcrypt";
 import { PrismaService } from "../../prisma/prisma.service";
 import { CreateUserDto } from "./dto/create-user.dto";
+import { UpdateRoleDto } from "./dto/update-role.dto";
 
 const SAFE_SELECT = {
   id: true,
@@ -48,7 +49,7 @@ export class UsersService {
         prenom: dto.prenom,
         email: dto.email,
         motDePasse: hashedPassword,
-        role: dto.role ?? "CLIENT"
+        role: "CLIENT"
       },
       select: SAFE_SELECT
     });
@@ -66,6 +67,17 @@ export class UsersService {
     return this.prisma.utilisateur.update({
       where: { id },
       data: dto,
+      select: SAFE_SELECT
+    });
+  }
+
+  async updateRole(id: string, dto: UpdateRoleDto) {
+    const user = await this.prisma.utilisateur.findUnique({ where: { id } });
+    if (!user) throw new NotFoundException("Utilisateur introuvable");
+
+    return this.prisma.utilisateur.update({
+      where: { id },
+      data: { role: dto.role },
       select: SAFE_SELECT
     });
   }

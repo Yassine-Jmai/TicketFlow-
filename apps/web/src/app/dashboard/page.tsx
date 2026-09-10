@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 
 type User = {
+  id: string;
   prenom: string;
   nom: string;
   photoUrl?: string | null;
@@ -13,13 +14,24 @@ type User = {
 
 export default function DashboardPage() {
   const [user, setUser] = useState<User | null>(null);
+  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
   useEffect(() => {
     const savedUser = window.localStorage.getItem("ticketflow_user");
     if (savedUser) {
-      setUser(JSON.parse(savedUser) as User);
+      const savedUserData = JSON.parse(savedUser) as User;
+      setUser(savedUserData);
+
+      fetch(`${apiBaseUrl}/users/${savedUserData.id}`)
+        .then((response) => (response.ok ? response.json() : null))
+        .then((currentUser: User | null) => {
+          if (!currentUser) return;
+          setUser(currentUser);
+          window.localStorage.setItem("ticketflow_user", JSON.stringify(currentUser));
+        })
+        .catch(() => undefined);
     }
-  }, []);
+  }, [apiBaseUrl]);
 
   function signOut() {
     window.localStorage.removeItem("ticketflow_access_token");
@@ -45,6 +57,9 @@ export default function DashboardPage() {
             )}
           </Link>
           <Link className="profile-link" href="/profile">Profile</Link>
+          {user?.role === "ADMINISTRATEUR" && (
+            <Link className="profile-link" href="/client-management">Client management</Link>
+          )}
           <button className="sign-out-button" type="button" onClick={signOut}>Sign out</button>
         </nav>
       </header>
@@ -82,6 +97,7 @@ export default function DashboardPage() {
           </div>
           <button type="button" disabled>New ticket</button>
         </section>
+
       </section>
     </main>
   );
