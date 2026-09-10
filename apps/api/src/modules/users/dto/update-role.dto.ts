@@ -1,7 +1,6 @@
-import { IsEnum } from "class-validator";
-import { UserRoleDto } from "./create-user.dto";
+import { IsIn } from "class-validator";
 
 export class UpdateRoleDto {
-  @IsEnum(UserRoleDto)
-  role!: UserRoleDto;
+  @IsIn(["CLIENT", "CONSULTANT"])
+  role!: "CLIENT" | "CONSULTANT";
 }

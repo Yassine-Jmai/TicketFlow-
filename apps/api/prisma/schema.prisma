@@ -35,6 +35,10 @@ model Utilisateur {
   photoUrl      String?
   motDePasse    String
   role          Role               @default(CLIENT)
+  emailVerified Boolean            @default(true)
+  verificationTokenHash String?
+  verificationCodeHash String?
+  verificationExpiresAt DateTime?
   dateCreation  DateTime           @default(now())
   ticketsCree   Ticket[]           @relation("TicketCreator")
   ticketsAssigne Ticket[]          @relation("TicketAssignee")

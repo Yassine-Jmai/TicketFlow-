@@ -17,6 +17,19 @@ export default function DashboardPage() {
   const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
   useEffect(() => {
+    const accessToken = window.localStorage.getItem("ticketflow_access_token");
+    if (!accessToken) {
+      window.location.replace("/");
+      return;
+    }
+
+    const handlePageShow = () => {
+      if (!window.localStorage.getItem("ticketflow_access_token")) {
+        window.location.replace("/");
+      }
+    };
+    window.addEventListener("pageshow", handlePageShow);
+
     const savedUser = window.localStorage.getItem("ticketflow_user");
     if (savedUser) {
       const savedUserData = JSON.parse(savedUser) as User;
@@ -31,12 +44,14 @@ export default function DashboardPage() {
         })
         .catch(() => undefined);
     }
+
+    return () => window.removeEventListener("pageshow", handlePageShow);
   }, [apiBaseUrl]);
 
   function signOut() {
     window.localStorage.removeItem("ticketflow_access_token");
     window.localStorage.removeItem("ticketflow_user");
-    window.location.assign("/");
+    window.location.replace("/");
   }
 
   return (

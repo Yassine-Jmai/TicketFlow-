@@ -12,14 +12,14 @@ type User = {
   role: string;
 };
 
-const roles = ["CLIENT", "CONSULTANT", "ADMINISTRATEUR"] as const;
+const roles = ["CLIENT", "CONSULTANT"] as const;
 
 export default function ClientManagementPage() {
   const [users, setUsers] = useState<User[]>([]);
-  const [currentUserId, setCurrentUserId] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [savingRoleId, setSavingRoleId] = useState("");
+  const [deletingUserId, setDeletingUserId] = useState("");
   const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
   useEffect(() => {
@@ -28,7 +28,6 @@ export default function ClientManagementPage() {
     if (!savedUser || !token) return;
 
     const currentUser = JSON.parse(savedUser) as User;
-    setCurrentUserId(currentUser.id);
 
     fetch(`${apiBaseUrl}/users`, { headers: { Authorization: `Bearer ${token}` } })
       .then(async (response) => {
@@ -57,16 +56,35 @@ export default function ClientManagementPage() {
       if (!response.ok) throw new Error(data.message ?? "Unable to update this role.");
 
       setUsers((currentUsers) => currentUsers.map((item) => item.id === data.id ? data : item));
-      if (userId === currentUserId) {
-        window.localStorage.setItem("ticketflow_user", JSON.stringify(data));
-        setNotice("Your role was updated. Sign out and sign in again to refresh access.");
-      } else {
-        setNotice(`Role updated for ${data.prenom} ${data.nom}.`);
-      }
+      setNotice(`Role updated for ${data.prenom} ${data.nom}.`);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to update this role.");
     } finally {
       setSavingRoleId("");
+    }
+  }
+
+  async function deleteUser(managedUser: User) {
+    if (!window.confirm(`Delete the account for ${managedUser.prenom} ${managedUser.nom}? This cannot be undone.`)) return;
+
+    setDeletingUserId(managedUser.id);
+    setError("");
+    setNotice("");
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/users/${managedUser.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${window.localStorage.getItem("ticketflow_access_token") ?? ""}` }
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message ?? "Unable to delete this account.");
+
+      setUsers((currentUsers) => currentUsers.filter((item) => item.id !== managedUser.id));
+      setNotice(`Account deleted for ${managedUser.prenom} ${managedUser.nom}.`);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to delete this account.");
+    } finally {
+      setDeletingUserId("");
     }
   }
 
@@ -90,6 +108,13 @@ export default function ClientManagementPage() {
         {error && <p className="form-message form-error" role="alert">{error}</p>}
         {notice && <p className="form-message form-success" role="status">{notice}</p>}
         <section className="admin-user-panel" aria-label="Client management list">
+          <div className="admin-panel-heading">
+            <div>
+              <p className="eyebrow">Workspace accounts</p>
+              <h2>People with access</h2>
+            </div>
+            <span className="admin-count">{users.length} {users.length === 1 ? "account" : "accounts"}</span>
+          </div>
           <div className="admin-user-list">
             {users.map((managedUser) => (
               <div className="admin-user-row" key={managedUser.id}>
@@ -106,15 +131,24 @@ export default function ClientManagementPage() {
                     <span>{managedUser.email}</span>
                   </div>
                 </div>
-                <select
-                  aria-label={`Role for ${managedUser.prenom} ${managedUser.nom}`}
-                  value={managedUser.role}
-                    disabled={savingRoleId === managedUser.id || managedUser.id === currentUserId}
-                  onChange={(event) => changeRole(managedUser.id, event.target.value)}
-                >
-                  {roles.map((role) => <option key={role} value={role}>{role}</option>)}
-                </select>
-                  {managedUser.id === currentUserId && <small className="role-lock-note">Another administrator must change your role.</small>}
+                <div className="admin-user-actions">
+                  <select
+                    aria-label={`Role for ${managedUser.prenom} ${managedUser.nom}`}
+                    value={managedUser.role}
+                    disabled={savingRoleId === managedUser.id || deletingUserId === managedUser.id}
+                    onChange={(event) => changeRole(managedUser.id, event.target.value)}
+                  >
+                    {roles.map((role) => <option key={role} value={role}>{role}</option>)}
+                  </select>
+                  <button
+                    className="danger-button"
+                    type="button"
+                    disabled={savingRoleId === managedUser.id || deletingUserId === managedUser.id}
+                    onClick={() => deleteUser(managedUser)}
+                  >
+                    {deletingUserId === managedUser.id ? "Deleting..." : "Delete"}
+                  </button>
+                </div>
               </div>
             ))}
           </div>

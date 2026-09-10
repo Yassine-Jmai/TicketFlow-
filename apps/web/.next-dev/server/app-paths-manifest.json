@@ -1,1 +1,6 @@
-{}
+{
+  "/client-management/page": "app/client-management/page.js",
+  "/dashboard/page": "app/dashboard/page.js",
+  "/page": "app/page.js",
+  "/profile/page": "app/profile/page.js"
+}

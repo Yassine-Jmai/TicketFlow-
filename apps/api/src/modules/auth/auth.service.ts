@@ -25,6 +25,10 @@ export class AuthService {
       throw new UnauthorizedException("Email ou mot de passe invalide");
     }
 
+    if (!user.emailVerified) {
+      throw new UnauthorizedException("Veuillez vérifier votre adresse email avant de vous connecter");
+    }
+
     const payload = { sub: user.id, role: user.role };
 
     return {

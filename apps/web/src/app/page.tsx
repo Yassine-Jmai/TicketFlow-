@@ -10,6 +10,8 @@ export default function HomePage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
+  const [needsVerification, setNeedsVerification] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -19,10 +21,12 @@ export default function HomePage() {
     setIsSubmitting(true);
 
     try {
-      const endpoint = isSignUp ? "/users" : "/auth/login";
-      const body = isSignUp
-        ? { nom: lastName, prenom: firstName, email, motDePasse: password }
-        : { email, motDePasse: password };
+      const endpoint = needsVerification ? "/auth/verify-code" : isSignUp ? "/users" : "/auth/login";
+      const body = needsVerification
+        ? { email, code: verificationCode }
+        : isSignUp
+          ? { nom: lastName, prenom: firstName, email, motDePasse: password }
+          : { email, motDePasse: password };
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001"}${endpoint}`,
         {
@@ -41,7 +45,12 @@ export default function HomePage() {
       if (isSignUp) {
         setIsSignUp(false);
         setPassword("");
-        setSuccess("Account created. You can sign in now.");
+        setNeedsVerification(true);
+        setSuccess("Account created. Enter the 6-digit code sent to your email.");
+      } else if (needsVerification) {
+        setNeedsVerification(false);
+        setVerificationCode("");
+        setSuccess("Email verified. You can now sign in.");
       } else {
         window.localStorage.setItem("ticketflow_access_token", data.access_token);
         window.localStorage.setItem("ticketflow_user", JSON.stringify(data.user));
@@ -69,12 +78,30 @@ export default function HomePage() {
         <div className="auth-card-header">
           <span className="brand-mark" aria-hidden="true">TF</span>
           <div>
-            <p className="card-kicker">{isSignUp ? "Get started" : "Welcome back"}</p>
-            <h2 id="login-title">{isSignUp ? "Create your account" : "Sign in to TicketFlow"}</h2>
+            <p className="card-kicker">{needsVerification ? "Check your inbox" : isSignUp ? "Get started" : "Welcome back"}</p>
+            <h2 id="login-title">
+              {needsVerification ? "Verify your email" : isSignUp ? "Create your account" : "Sign in to TicketFlow"}
+            </h2>
           </div>
         </div>
 
         <form className="login-form" onSubmit={handleSubmit}>
+          {needsVerification ? (
+            <>
+              <label htmlFor="verification-code">Verification code</label>
+              <input
+                id="verification-code"
+                name="verificationCode"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                placeholder="Enter 6-digit code"
+                value={verificationCode}
+                onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                required
+              />
+            </>
+          ) : (
+            <>
           {isSignUp && (
             <>
               <label htmlFor="first-name">First name</label>
@@ -127,6 +154,9 @@ export default function HomePage() {
             required
           />
 
+            </>
+          )}
+
           <button type="submit" disabled={isSubmitting}>
             {isSubmitting ? "Please wait..." : isSignUp ? "Create account" : "Sign in"}
             <span aria-hidden="true"> -&gt;</span>
@@ -139,12 +169,16 @@ export default function HomePage() {
           className="mode-switch"
           type="button"
           onClick={() => {
-            setIsSignUp(!isSignUp);
+            if (needsVerification) {
+              setNeedsVerification(false);
+            } else {
+              setIsSignUp(!isSignUp);
+            }
             setError("");
             setSuccess("");
           }}
         >
-          {isSignUp ? "Already have an account? Sign in" : "Need an account? Create one"}
+          {needsVerification ? "Back to sign in" : isSignUp ? "Already have an account? Sign in" : "Need an account? Create one"}
         </button>
         <p className="auth-note">Your workspace is protected by secure account access.</p>
       </section>

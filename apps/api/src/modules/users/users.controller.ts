@@ -1,5 +1,5 @@
 // users.controller.ts
-import { Body, Controller, Get, Param, Post, Put, Query, Req, UseGuards, UsePipes, ValidationPipe } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Post, Put, Req, UseGuards, UsePipes, ValidationPipe } from "@nestjs/common";
 import { AuthGuard } from "@nestjs/passport";
 import type { Request } from "express";
 import { UsersService } from "./users.service";
@@ -18,8 +18,8 @@ export class UsersController {
   @Get()
   @UseGuards(AuthGuard("jwt"), RolesGuard)
   @Roles("ADMINISTRATEUR")
-  findAll(@Query("role") role?: string) {
-    return this.usersService.findAll(role);
+  findAll(@Req() request: AuthenticatedRequest) {
+    return this.usersService.findAll(request.user.userId);
   }
 
   @Get(":id")
@@ -44,7 +44,14 @@ export class UsersController {
   @UseGuards(AuthGuard("jwt"), RolesGuard)
   @Roles("ADMINISTRATEUR")
   @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
-  updateRole(@Param("id") id: string, @Body() dto: UpdateRoleDto) {
-    return this.usersService.updateRole(id, dto);
+  updateRole(@Param("id") id: string, @Req() request: AuthenticatedRequest, @Body() dto: UpdateRoleDto) {
+    return this.usersService.updateRole(id, request.user.userId, dto);
+  }
+
+  @Delete(":id")
+  @UseGuards(AuthGuard("jwt"), RolesGuard)
+  @Roles("ADMINISTRATEUR")
+  delete(@Param("id") id: string, @Req() request: AuthenticatedRequest) {
+    return this.usersService.delete(id, request.user.userId);
   }
 }

@@ -24,3 +24,15 @@ Install dependencies and run:
 npm install
 npm run dev
 ```
+
+## Brevo email verification
+
+New accounts require email verification before login. Add these variables to `apps/api/.env`:
+
+```env
+BREVO_API_KEY="your-brevo-api-key"
+BREVO_SENDER_EMAIL="the-verified-sender@example.com"
+APP_URL="http://localhost:3000"
+```
+
+The sender address must be verified in Brevo. Never commit the API key.

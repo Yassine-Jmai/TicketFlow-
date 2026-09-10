@@ -204,6 +204,46 @@ h1 {
   line-height: 1.5;
 }
 
+.verification-card {
+  text-align: center;
+}
+
+.verification-card h2 {
+  margin-top: 18px;
+}
+
+.verification-icon {
+  display: grid;
+  width: 58px;
+  height: 58px;
+  margin: 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  font: 700 0.85rem Arial, sans-serif;
+}
+
+.verification-loading {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.verification-success {
+  background: #edf8ef;
+  color: #246b35;
+}
+
+.verification-error {
+  background: #fff0ef;
+  color: #a32820;
+}
+
+.verification-link {
+  display: inline-block;
+  margin-top: 12px;
+  color: var(--accent);
+  font: 700 0.84rem Arial, sans-serif;
+}
+
 .dashboard-page {
   min-height: 100vh;
   padding: 24px;
@@ -440,7 +480,7 @@ h1 {
 
 .admin-user-panel {
   margin-top: 24px;
-  padding: 28px;
+  padding: 24px 28px 10px;
   border: 1px solid var(--panel-border);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.78);
@@ -487,9 +527,9 @@ h1 {
 }
 
 .admin-user-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: 18px;
   padding: 16px 0;
   border-bottom: 1px solid rgba(20, 28, 56, 0.1);
@@ -550,6 +590,41 @@ h1 {
   background: white;
   color: var(--text);
   font: 700 0.72rem Arial, sans-serif;
+  cursor: pointer;
+}
+
+.admin-user-row select:focus,
+.danger-button:focus-visible {
+  outline: 3px solid var(--accent-soft);
+  outline-offset: 2px;
+}
+
+.admin-user-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.danger-button {
+  min-width: 78px;
+  padding: 9px 12px;
+  border: 1px solid rgba(180, 49, 40, 0.22);
+  border-radius: 6px;
+  background: #fff7f6;
+  color: #a32820;
+  cursor: pointer;
+  font: 700 0.72rem Arial, sans-serif;
+}
+
+.danger-button:hover {
+  border-color: #a32820;
+  background: #fff0ef;
+}
+
+.danger-button:disabled,
+.admin-user-row select:disabled {
+  cursor: wait;
+  opacity: 0.6;
 }
 
 .profile-page {
@@ -734,7 +809,17 @@ h1 {
     flex-direction: column;
   }
 
-  .admin-user-row select {
+  .admin-user-row {
+    display: flex;
+  }
+
+  .admin-user-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-user-row select,
+  .danger-button {
     width: 100%;
   }
 
