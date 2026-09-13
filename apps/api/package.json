@@ -2,8 +2,10 @@
   "name": "@ticketflow/api",
   "private": true,
   "scripts": {
+    "prebuild": "prisma generate",
     "build": "nest build",
-    "dev": "npm run build && node dist/main",
+    "predev": "prisma generate",
+    "dev": "nest start --watch",
     "dev:watch": "tsc --watch --project tsconfig.json & node --watch dist/main",
     "start": "node dist/main",
     "start:debug": "node --inspect-brk -r tsconfig-paths/register dist/main",

@@ -32,8 +32,15 @@ model Utilisateur {
   nom           String
   prenom        String
   email         String             @unique
+  photoUrl      String?
   motDePasse    String
   role          Role               @default(CLIENT)
+  emailVerified Boolean            @default(true)
+  verificationTokenHash String?
+  verificationCodeHash String?
+  verificationExpiresAt DateTime?
+  passwordResetCodeHash String?
+  passwordResetExpiresAt DateTime?
   dateCreation  DateTime           @default(now())
   ticketsAssigne Ticket[]          @relation("TicketAssignee")
   ticketsClients Ticket[]          @relation("TicketClient")

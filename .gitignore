@@ -12,3 +12,4 @@ coverage
 apps/api/dist
 apps/api/uploads
 apps/web/.next
+apps/web/.next-dev
