@@ -1,5 +1,8 @@
 "use client";
 
+import "./dashboard.css";
+
+import Link from "next/link";
 import type {
   TicketModule,
   TicketPriority,
@@ -104,8 +107,6 @@ type CreateTicketForm = {
   description: string;
   priorite: TicketPriority;
 };
-
-type DevIdentities = Partial<Record<UserRole, User>>;
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
@@ -221,7 +222,8 @@ export default function HomePage() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [modules, setModules] = useState<TicketModule[]>([]);
   const [consultants, setConsultants] = useState<User[]>([]);
-  const [devIdentities, setDevIdentities] = useState<DevIdentities>({});
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authReady, setAuthReady] = useState(false);
   const [selectedTicketId, setSelectedTicketId] = useState<string>("");
   const [createForm, setCreateForm] = useState<CreateTicketForm>({
     moduleId: "",
@@ -243,8 +245,6 @@ export default function HomePage() {
     [selectedTicketId, tickets]
   );
 
-  const currentUser = devIdentities[role];
-
   const stats = useMemo(
     () => ({
       total: tickets.length,
@@ -256,15 +256,13 @@ export default function HomePage() {
   );
 
   async function loadReferenceData() {
-    const [moduleList, consultantList, identities] = await Promise.all([
+    const [moduleList, consultantList] = await Promise.all([
       requestJson<TicketModule[]>("/ticket-modules"),
       requestJson<User[]>("/users/consultants"),
-      requestJson<DevIdentities>("/users/dev-identities"),
     ]);
 
     setModules(moduleList);
     setConsultants(consultantList);
-    setDevIdentities(identities);
     setCreateForm((current) => ({
       ...current,
       moduleId: current.moduleId || moduleList[0]?.id || "",
@@ -272,28 +270,28 @@ export default function HomePage() {
     setAssigneeId((current) => current || consultantList[0]?.id || "");
   }
 
-  function getAuthHeaders(currentRole = role) {
-      const actor = devIdentities[currentRole];
-
-    if (!actor) {
-      throw new Error(`Aucune identité de test pour ${ROLE_LABEL[currentRole]}`);
+  function getAuthHeaders() {
+    if (!currentUser) {
+      throw new Error("Session utilisateur introuvable");
     }
 
+    const token = window.localStorage.getItem("ticketflow_access_token") ?? "";
+
     return {
-      "x-user-id": actor.id,
-      "x-user-role": actor.role,
+      Authorization: `Bearer ${token}`,
+      "x-user-id": currentUser.id,
+      "x-user-role": currentUser.role,
     };
   }
 
   async function apiJson<T>(
     path: string,
-    init?: RequestInit,
-    currentRole = role
+    init?: RequestInit
   ): Promise<T> {
     return requestJson<T>(path, {
       ...init,
       headers: {
-        ...getAuthHeaders(currentRole),
+        ...getAuthHeaders(),
         ...init?.headers,
       },
     });
@@ -309,7 +307,7 @@ export default function HomePage() {
           : currentRole === "CONSULTANT"
             ? "/tickets/assigned"
             : "/tickets";
-      const ticketList = await apiJson<Ticket[]>(path, undefined, currentRole);
+      const ticketList = await apiJson<Ticket[]>(path);
 
       setTickets(ticketList);
       setSelectedTicketId((current) =>
@@ -326,6 +324,32 @@ export default function HomePage() {
   }
 
   useEffect(() => {
+    const savedUser = window.localStorage.getItem("ticketflow_user");
+    const token = window.localStorage.getItem("ticketflow_access_token");
+
+    if (!savedUser || !token) {
+      window.location.replace("/");
+      return;
+    }
+
+    try {
+      const user = JSON.parse(savedUser) as User;
+
+      if (!user.id || !Object.prototype.hasOwnProperty.call(ROLE_LABEL, user.role)) {
+        throw new Error("Invalid stored user");
+      }
+
+      setCurrentUser(user);
+      setRole(user.role);
+      setAuthReady(true);
+    } catch {
+      window.localStorage.removeItem("ticketflow_access_token");
+      window.localStorage.removeItem("ticketflow_user");
+      window.location.replace("/");
+    }
+  }, []);
+
+  useEffect(() => {
     void loadReferenceData().catch((error) => {
       setMessage(
         error instanceof Error
@@ -336,10 +360,10 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    if (devIdentities[role]) {
+    if (authReady && currentUser) {
       void loadTickets(role);
     }
-  }, [role, devIdentities]);
+  }, [authReady, currentUser, role]);
 
   useEffect(() => {
     setReportContent(selectedTicket?.compteRendu?.contenu ?? "");
@@ -597,6 +621,20 @@ export default function HomePage() {
   const canUploadAttachment =
     Boolean(selectedTicket) && selectedTicket?.statut !== "CLOTURE";
 
+  if (!authReady || !currentUser) {
+    return (
+      <main className="app-shell">
+        <div className="dashboard-loading">Chargement de votre espace...</div>
+      </main>
+    );
+  }
+
+  function signOut() {
+    window.localStorage.removeItem("ticketflow_access_token");
+    window.localStorage.removeItem("ticketflow_user");
+    window.location.assign("/");
+  }
+
   return (
     <main className="app-shell">
       <div aria-hidden="true" className="ambient-orb ambient-orb-one" />
@@ -613,21 +651,21 @@ export default function HomePage() {
           </div>
         </div>
         <div className="topbar-actions">
-          <div aria-label="Current role" className="segmented">
-            {(Object.keys(ROLE_LABEL) as UserRole[]).map((item) => (
-              <button
-                className={role === item ? "active" : ""}
-                key={item}
-                onClick={() => setRole(item)}
-                type="button"
-              >
-                {ROLE_LABEL[item]}
-              </button>
-            ))}
-          </div>
+          <span className="role-chip">{ROLE_LABEL[role]}</span>
+          {role === "ADMINISTRATEUR" ? (
+            <Link className="ghost-button topbar-link" href="/client-management">
+              Gérer les utilisateurs
+            </Link>
+          ) : null}
+          <Link className="ghost-button topbar-link" href="/profile">
+            Mon profil
+          </Link>
           <button className="ghost-button refresh-button" onClick={() => void loadTickets(role)} type="button">
             <InterfaceIcon name="refresh" />
             Actualiser
+          </button>
+          <button className="ghost-button" onClick={signOut} type="button">
+            Déconnexion
           </button>
         </div>
       </header>
