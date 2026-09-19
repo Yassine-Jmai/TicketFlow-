@@ -2,6 +2,7 @@ import {
   Injectable,
   BadRequestException,
   ForbiddenException,
+  Logger,
   NotFoundException,
 } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
@@ -9,6 +10,7 @@ import { CreateTicketDto } from "./dto/create-ticket.dto";
 import { CreateCompteRenduDto } from "./dto/create-compte-rendu.dto";
 import { Role, StatutTicket } from "@prisma/client";
 import { existsSync, unlinkSync } from "fs";
+import { EmailService } from "../email/email.service";
 
 const ALLOWED_STATUS_TRANSITIONS: Record<StatutTicket, StatutTicket[]> = {
   [StatutTicket.NOUVEAU]: [StatutTicket.EN_COURS],
@@ -32,7 +34,148 @@ export type TicketActor = {
 
 @Injectable()
 export class TicketsService {
-  constructor(private prisma: PrismaService) {}
+  private readonly logger = new Logger(TicketsService.name);
+
+  constructor(
+    private prisma: PrismaService,
+    private emailService: EmailService
+  ) {}
+
+  private async notifyClientOfStatusChange(
+    ticket: {
+      numero: string;
+      objet: string;
+      client: { email: string; nom: string; prenom: string };
+      assignee?: { nom: string; prenom: string } | null;
+      compteRendu?: { contenu: string } | null;
+    },
+    newStatus: StatutTicket,
+    changedAt: Date,
+    closureReason?: "CLIENT_VALIDATION" | "ADMINISTRATOR" | "AUTOMATIC",
+    clientResponseReceived = false,
+    clientRejectedResolution = false
+  ): Promise<boolean> {
+    try {
+      await this.emailService.sendTicketStatusNotification({
+        recipientEmail: ticket.client.email,
+        recipientName: `${ticket.client.prenom} ${ticket.client.nom}`.trim(),
+        ticketNumber: ticket.numero,
+        ticketSubject: ticket.objet,
+        newStatus,
+        changedAt,
+        consultantName: ticket.assignee
+          ? `${ticket.assignee.prenom} ${ticket.assignee.nom}`.trim()
+          : null,
+        report: ticket.compteRendu?.contenu,
+        closureReason,
+        clientResponseReceived,
+        clientRejectedResolution
+      });
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `Status email for ticket ${ticket.numero} could not be sent: ${message}`
+      );
+      return false;
+    }
+  }
+
+  private async notifyStaffOfClientClosure(
+    ticket: {
+      numero: string;
+      objet: string;
+      client: { email: string; nom: string; prenom: string };
+      assignee?: { email: string; nom: string; prenom: string } | null;
+    },
+    closedAt: Date
+  ) {
+    const administrators = await this.prisma.utilisateur.findMany({
+      where: { role: Role.ADMINISTRATEUR, deletedAt: null },
+      select: { email: true, nom: true, prenom: true }
+    });
+    const recipients = [
+      ...(ticket.assignee ? [ticket.assignee] : []),
+      ...administrators
+    ];
+    const uniqueRecipients = Array.from(
+      new Map(
+        recipients.map((recipient) => [recipient.email.toLowerCase(), recipient])
+      ).values()
+    );
+    let sent = 0;
+
+    await Promise.all(
+      uniqueRecipients.map(async (recipient) => {
+        try {
+          await this.emailService.sendTicketClosureStaffNotification({
+            recipientEmail: recipient.email,
+            recipientName: `${recipient.prenom} ${recipient.nom}`.trim(),
+            ticketNumber: ticket.numero,
+            ticketSubject: ticket.objet,
+            clientName: `${ticket.client.prenom} ${ticket.client.nom}`.trim(),
+            closedAt
+          });
+          sent += 1;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          this.logger.warn(
+            `Closure email for ticket ${ticket.numero} to ${recipient.email} could not be sent: ${message}`
+          );
+        }
+      })
+    );
+
+    return { sent, total: uniqueRecipients.length };
+  }
+
+  private async notifyStaffOfClientRejection(
+    ticket: {
+      numero: string;
+      objet: string;
+      client: { email: string; nom: string; prenom: string };
+      assignee?: { email: string; nom: string; prenom: string } | null;
+    },
+    rejectedAt: Date
+  ) {
+    const administrators = await this.prisma.utilisateur.findMany({
+      where: { role: Role.ADMINISTRATEUR, deletedAt: null },
+      select: { email: true, nom: true, prenom: true }
+    });
+    const recipients = [
+      ...(ticket.assignee ? [ticket.assignee] : []),
+      ...administrators
+    ];
+    const uniqueRecipients = Array.from(
+      new Map(
+        recipients.map((recipient) => [recipient.email.toLowerCase(), recipient])
+      ).values()
+    );
+    let sent = 0;
+
+    await Promise.all(
+      uniqueRecipients.map(async (recipient) => {
+        try {
+          await this.emailService.sendTicketRejectionStaffNotification({
+            recipientEmail: recipient.email,
+            recipientName: `${recipient.prenom} ${recipient.nom}`.trim(),
+            ticketNumber: ticket.numero,
+            ticketSubject: ticket.objet,
+            clientName: `${ticket.client.prenom} ${ticket.client.nom}`.trim(),
+            rejectedAt
+          });
+          sent += 1;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          this.logger.warn(
+            `Rejection email for ticket ${ticket.numero} to ${recipient.email} could not be sent: ${message}`
+          );
+        }
+      })
+    );
+
+    return { sent, total: uniqueRecipients.length };
+  }
 
   private validateStatusTransition(
     currentStatus: StatutTicket,
@@ -51,7 +194,11 @@ export class TicketsService {
     }
   }
 
-  private ensureTicketIsMutable(status: StatutTicket) {
+  private ensureTicketIsMutable(status: StatutTicket, archivedAt?: Date | null) {
+    if (archivedAt) {
+      throw new BadRequestException("An archived ticket cannot be changed");
+    }
+
     if (status === StatutTicket.CLOTURE) {
       throw new BadRequestException("A closed ticket cannot be changed");
     }
@@ -160,6 +307,7 @@ export class TicketsService {
     this.ensureRole(actor, [Role.ADMINISTRATEUR]);
 
     return this.prisma.ticket.findMany({
+      where: { archivedAt: null },
       include: {
         module: true,
         client: {
@@ -192,7 +340,7 @@ export class TicketsService {
     this.ensureRole(actor, [Role.CLIENT]);
 
     return this.prisma.ticket.findMany({
-      where: { clientId: actor.id },
+      where: { clientId: actor.id, archivedAt: null },
       include: {
         module: true,
         client: {
@@ -225,7 +373,7 @@ export class TicketsService {
     this.ensureRole(actor, [Role.CONSULTANT]);
 
     return this.prisma.ticket.findMany({
-      where: { assigneeId: actor.id },
+      where: { assigneeId: actor.id, archivedAt: null },
       include: {
         module: true,
         client: {
@@ -296,6 +444,10 @@ export class TicketsService {
     const ticket = await this.getTicketById(ticketId);
     this.ensureTicketAccess(ticket, actor);
 
+    if (ticket.archivedAt && actor.role !== Role.ADMINISTRATEUR) {
+      throw new NotFoundException("Ticket not found");
+    }
+
     return ticket;
   }
 
@@ -317,6 +469,11 @@ export class TicketsService {
 
     const ticket = await this.prisma.ticket.findUnique({
       where: { id: ticketId },
+      include: {
+        client: { select: { email: true, nom: true, prenom: true } },
+        assignee: { select: { email: true, nom: true, prenom: true } },
+        compteRendu: { select: { contenu: true } }
+      }
     });
 
     if (!ticket) {
@@ -324,6 +481,7 @@ export class TicketsService {
     }
 
     this.ensureTicketAccess(ticket, actor);
+    this.ensureTicketIsMutable(ticket.statut, ticket.archivedAt);
     this.validateStatusTransition(ticket.statut, newStatus);
 
     if (
@@ -345,12 +503,13 @@ export class TicketsService {
       }
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const changedAt = new Date();
+    const updatedTicket = await this.prisma.$transaction(async (tx) => {
       const updatedTicket = await tx.ticket.update({
         where: { id: ticketId },
         data: {
           statut: newStatus,
-          dateModification: new Date(),
+          dateModification: changedAt,
         },
       });
 
@@ -365,6 +524,13 @@ export class TicketsService {
 
       return updatedTicket;
     });
+
+    const notificationSent = await this.notifyClientOfStatusChange(
+      ticket,
+      newStatus,
+      changedAt
+    );
+    return { ...updatedTicket, notificationSent };
   }
 
   async closeResolvedByClient(ticketId: string, actor: TicketActor) {
@@ -372,6 +538,11 @@ export class TicketsService {
 
     const ticket = await this.prisma.ticket.findUnique({
       where: { id: ticketId },
+      include: {
+        client: { select: { email: true, nom: true, prenom: true } },
+        assignee: { select: { email: true, nom: true, prenom: true } },
+        compteRendu: { select: { contenu: true } }
+      }
     });
 
     if (!ticket) {
@@ -379,6 +550,7 @@ export class TicketsService {
     }
 
     this.ensureTicketAccess(ticket, actor);
+    this.ensureTicketIsMutable(ticket.statut, ticket.archivedAt);
 
     if (ticket.statut !== StatutTicket.RESOLU) {
       throw new BadRequestException(
@@ -390,7 +562,7 @@ export class TicketsService {
 
     const closedAt = new Date();
 
-    return this.prisma.$transaction(async (tx) => {
+    const updatedTicket = await this.prisma.$transaction(async (tx) => {
       const updatedTicket = await tx.ticket.update({
         where: { id: ticketId },
         data: {
@@ -411,6 +583,93 @@ export class TicketsService {
 
       return updatedTicket;
     });
+
+    const clientNotificationSent = await this.notifyClientOfStatusChange(
+      ticket,
+      StatutTicket.CLOTURE,
+      closedAt,
+      "CLIENT_VALIDATION"
+    );
+    const staffNotifications = await this.notifyStaffOfClientClosure(
+      ticket,
+      closedAt
+    );
+    return {
+      ...updatedTicket,
+      clientNotificationSent,
+      staffNotificationsSent: staffNotifications.sent,
+      staffNotificationRecipients: staffNotifications.total
+    };
+  }
+
+  async rejectResolvedByClient(ticketId: string, actor: TicketActor) {
+    this.ensureRole(actor, [Role.CLIENT]);
+
+    const ticket = await this.prisma.ticket.findUnique({
+      where: { id: ticketId },
+      include: {
+        client: { select: { email: true, nom: true, prenom: true } },
+        assignee: { select: { email: true, nom: true, prenom: true } },
+        compteRendu: { select: { contenu: true } }
+      }
+    });
+
+    if (!ticket) {
+      throw new NotFoundException("Ticket not found");
+    }
+
+    this.ensureTicketAccess(ticket, actor);
+    this.ensureTicketIsMutable(ticket.statut, ticket.archivedAt);
+
+    if (ticket.statut !== StatutTicket.RESOLU) {
+      throw new BadRequestException(
+        "Only a resolved ticket can be rejected by the client"
+      );
+    }
+
+    const rejectedAt = new Date();
+    const updatedTicket = await this.prisma.$transaction(async (tx) => {
+      const updatedTicket = await tx.ticket.update({
+        where: { id: ticketId },
+        data: {
+          statut: StatutTicket.EN_COURS,
+          dateModification: rejectedAt,
+          dateCloture: null
+        }
+      });
+
+      await tx.historiqueStatut.create({
+        data: {
+          ticketId: ticket.id,
+          ancienStatut: StatutTicket.RESOLU,
+          auteurId: actor.id,
+          nouveauStatut: StatutTicket.EN_COURS,
+          dateChangement: rejectedAt
+        }
+      });
+
+      return updatedTicket;
+    });
+
+    const clientNotificationSent = await this.notifyClientOfStatusChange(
+      ticket,
+      StatutTicket.EN_COURS,
+      rejectedAt,
+      undefined,
+      false,
+      true
+    );
+    const staffNotifications = await this.notifyStaffOfClientRejection(
+      ticket,
+      rejectedAt
+    );
+
+    return {
+      ...updatedTicket,
+      clientNotificationSent,
+      staffNotificationsSent: staffNotifications.sent,
+      staffNotificationRecipients: staffNotifications.total
+    };
   }
 
   /**
@@ -425,7 +684,7 @@ export class TicketsService {
 
     const ticket = await this.getTicketById(ticketId);
     this.ensureTicketAccess(ticket, actor);
-    this.ensureTicketIsMutable(ticket.statut);
+    this.ensureTicketIsMutable(ticket.statut, ticket.archivedAt);
 
     const compteRendu = await this.prisma.compteRendu.upsert({
       where: { ticketId },
@@ -453,14 +712,14 @@ export class TicketsService {
 
     const ticketToAssign = await this.getTicketById(ticketId);
     this.ensureTicketAccess(ticketToAssign, actor);
-    this.ensureTicketIsMutable(ticketToAssign.statut);
+    this.ensureTicketIsMutable(ticketToAssign.statut, ticketToAssign.archivedAt);
 
     // Verify consultant exists
     const consultant = await this.prisma.utilisateur.findUnique({
       where: { id: consultantId },
     });
 
-    if (!consultant) {
+    if (!consultant || consultant.deletedAt) {
       throw new NotFoundException(`Consultant with ID ${consultantId} not found`);
     }
 
@@ -489,43 +748,33 @@ export class TicketsService {
   }
 
   /**
-   * Delete a ticket and all dependent records.
+   * Archive an active ticket while preserving its complete audit history.
    */
   async deleteTicket(ticketId: string, actor: TicketActor) {
     this.ensureRole(actor, [Role.ADMINISTRATEUR]);
 
     const ticket = await this.prisma.ticket.findUnique({
       where: { id: ticketId },
-      include: {
-        pieceJointes: true,
-      },
     });
 
     if (!ticket) {
       throw new NotFoundException(`Ticket with ID ${ticketId} not found`);
     }
 
-    const deletedTicket = await this.prisma.$transaction(async (tx) => {
-      await tx.historiqueStatut.deleteMany({ where: { ticketId } });
-      await tx.compteRendu.deleteMany({ where: { ticketId } });
-      await tx.pieceJointe.deleteMany({ where: { ticketId } });
-
-      return tx.ticket.delete({
-        where: { id: ticketId },
-      });
-    });
-
-    for (const attachment of ticket.pieceJointes) {
-      try {
-        if (existsSync(attachment.chemin)) {
-          unlinkSync(attachment.chemin);
-        }
-      } catch {
-        // The ticket is already deleted; stale file cleanup can be retried manually.
-      }
+    if (ticket.statut === StatutTicket.CLOTURE) {
+      throw new BadRequestException(
+        "A closed ticket cannot be deleted or archived"
+      );
     }
 
-    return deletedTicket;
+    if (ticket.archivedAt) {
+      throw new BadRequestException("Ticket is already archived");
+    }
+
+    return this.prisma.ticket.update({
+      where: { id: ticketId },
+      data: { archivedAt: new Date() }
+    });
   }
 
   /**
@@ -540,12 +789,13 @@ export class TicketsService {
 
     const ticket = await this.getTicketById(ticketId);
     this.ensureTicketAccess(ticket, actor);
-    this.ensureTicketIsMutable(ticket.statut);
+    this.ensureTicketIsMutable(ticket.statut, ticket.archivedAt);
 
     const shouldReturnToInProgress =
       actor.role === Role.CLIENT && ticket.statut === StatutTicket.EN_ATTENTE_CLIENT;
+    const clientResponseAt = new Date();
 
-    return this.prisma.$transaction(async (tx) => {
+    const attachment = await this.prisma.$transaction(async (tx) => {
       const attachment = await tx.pieceJointe.create({
         data: {
           nomFichier: file.originalname,
@@ -557,13 +807,11 @@ export class TicketsService {
       });
 
       if (shouldReturnToInProgress) {
-        const responseDate = new Date();
-
         await tx.ticket.update({
           where: { id: ticketId },
           data: {
             statut: StatutTicket.EN_COURS,
-            dateModification: responseDate,
+            dateModification: clientResponseAt,
           },
         });
 
@@ -573,13 +821,25 @@ export class TicketsService {
             ancienStatut: StatutTicket.EN_ATTENTE_CLIENT,
             nouveauStatut: StatutTicket.EN_COURS,
             auteurId: actor.id,
-            dateChangement: responseDate,
+            dateChangement: clientResponseAt,
           },
         });
       }
 
       return attachment;
     });
+
+    if (shouldReturnToInProgress) {
+      await this.notifyClientOfStatusChange(
+        ticket,
+        StatutTicket.EN_COURS,
+        clientResponseAt,
+        undefined,
+        true
+      );
+    }
+
+    return attachment;
   }
 
   /**
@@ -628,7 +888,7 @@ export class TicketsService {
 
     const ticket = await this.getTicketById(ticketId);
     this.ensureTicketAccess(ticket, actor);
-    this.ensureTicketIsMutable(ticket.statut);
+    this.ensureTicketIsMutable(ticket.statut, ticket.archivedAt);
 
     // Verify attachment belongs to ticket
     const attachment = await this.prisma.pieceJointe.findUnique({
@@ -664,7 +924,7 @@ export class TicketsService {
     cutoffDate.setDate(cutoffDate.getDate() - days);
 
     const systemAuthor = await this.prisma.utilisateur.findFirst({
-      where: { role: Role.ADMINISTRATEUR },
+      where: { role: Role.ADMINISTRATEUR, deletedAt: null },
       orderBy: { dateCreation: "asc" },
     });
 
@@ -675,6 +935,7 @@ export class TicketsService {
     const ticketsToClose = await this.prisma.ticket.findMany({
       where: {
         statut: StatutTicket.RESOLU,
+        archivedAt: null,
         dateModification: {
           lte: cutoffDate,
         },
@@ -682,6 +943,11 @@ export class TicketsService {
       select: {
         id: true,
         statut: true,
+        numero: true,
+        objet: true,
+        client: { select: { email: true, nom: true, prenom: true } },
+        assignee: { select: { nom: true, prenom: true } },
+        compteRendu: { select: { contenu: true } }
       },
     });
 
@@ -689,34 +955,53 @@ export class TicketsService {
       return 0;
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      const closeResult = await tx.ticket.updateMany({
-        where: {
-          id: {
-            in: ticketsToClose.map((ticket) => ticket.id),
-          },
-          statut: StatutTicket.RESOLU,
-        },
-        data: {
-          statut: StatutTicket.CLOTURE,
-          dateCloture: closureDate,
-          dateModification: closureDate,
-        },
-      });
+    const closedTicketIds = await this.prisma.$transaction(async (tx) => {
+      const closedIds: string[] = [];
 
-      if (closeResult.count > 0) {
-        await tx.historiqueStatut.createMany({
-          data: ticketsToClose.map((ticket) => ({
+      for (const ticket of ticketsToClose) {
+        const closeResult = await tx.ticket.updateMany({
+          where: {
+            id: ticket.id,
+            statut: StatutTicket.RESOLU
+          },
+          data: {
+            statut: StatutTicket.CLOTURE,
+            dateCloture: closureDate,
+            dateModification: closureDate
+          }
+        });
+
+        if (closeResult.count === 0) continue;
+
+        await tx.historiqueStatut.create({
+          data: {
             ticketId: ticket.id,
             ancienStatut: ticket.statut,
             nouveauStatut: StatutTicket.CLOTURE,
             auteurId: systemAuthor.id,
-            dateChangement: closureDate,
-          })),
+            dateChangement: closureDate
+          }
         });
+        closedIds.push(ticket.id);
       }
 
-      return closeResult.count;
+      return closedIds;
     });
+
+    const closedTickets = ticketsToClose.filter((ticket) =>
+      closedTicketIds.includes(ticket.id)
+    );
+    await Promise.all(
+      closedTickets.map((ticket) =>
+        this.notifyClientOfStatusChange(
+          ticket,
+          StatutTicket.CLOTURE,
+          closureDate,
+          "AUTOMATIC"
+        )
+      )
+    );
+
+    return closedTicketIds.length;
   }
 }

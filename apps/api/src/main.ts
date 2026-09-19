@@ -1,3 +1,4 @@
+import "./environment";
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import * as express from "express";

@@ -237,6 +237,8 @@ export default function HomePage() {
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [message, setMessage] = useState("Prêt");
   const [isLoading, setIsLoading] = useState(false);
+  const [statusActionMessage, setStatusActionMessage] = useState("");
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const createFileInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -421,15 +423,31 @@ export default function HomePage() {
       return;
     }
 
+    setIsUpdatingStatus(true);
+    setStatusActionMessage("Mise à jour du statut et envoi de l’email...");
+
     try {
-      await apiJson<Ticket>(`/tickets/${selectedTicket.id}/statut`, {
+      const result = await apiJson<Ticket & { notificationSent?: boolean }>(
+        `/tickets/${selectedTicket.id}/statut`, {
         method: "PATCH",
         body: JSON.stringify({ newStatus: nextStatus }),
       });
-      setMessage(`${selectedTicket.numero} passé à ${STATUS_LABEL[nextStatus]}`);
       await loadTickets(role);
+      const notificationMessage = result.notificationSent
+        ? `Email envoyé à ${selectedTicket.client?.email ?? "l'adresse du client"}`
+        : "Statut modifié, mais l'email n'a pas pu être envoyé. Vérifiez la configuration Brevo et les journaux de l'API.";
+      setMessage(
+        `${selectedTicket.numero} passé à ${STATUS_LABEL[nextStatus]}. ${notificationMessage}`
+      );
+      setStatusActionMessage(notificationMessage);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Impossible de changer le statut");
+      const errorMessage = error instanceof Error
+        ? error.message
+        : "Impossible de changer le statut";
+      setMessage(errorMessage);
+      setStatusActionMessage(`Échec : ${errorMessage}`);
+    } finally {
+      setIsUpdatingStatus(false);
     }
   }
 
@@ -439,13 +457,41 @@ export default function HomePage() {
     }
 
     try {
-      await apiJson<Ticket>(`/tickets/${selectedTicket.id}/validate`, {
-        method: "PATCH",
-      });
-      setMessage(`${selectedTicket.numero} clôturé`);
+      const result = await apiJson<Ticket & {
+        staffNotificationsSent?: number;
+        staffNotificationRecipients?: number;
+      }>(`/tickets/${selectedTicket.id}/validate`, {
+          method: "PATCH",
+        });
+      const staffMessage = result.staffNotificationRecipients
+        ? `${result.staffNotificationsSent ?? 0}/${result.staffNotificationRecipients} notification(s) envoyée(s) au consultant et aux administrateurs.`
+        : "Aucun consultant ou administrateur à notifier.";
+      setMessage(`${selectedTicket.numero} clôturé. ${staffMessage}`);
       await loadTickets(role);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Impossible de clôturer le ticket");
+    }
+  }
+
+  async function rejectAsClient() {
+    if (!selectedTicket) {
+      return;
+    }
+
+    try {
+      const result = await apiJson<Ticket & {
+        staffNotificationsSent?: number;
+        staffNotificationRecipients?: number;
+      }>(`/tickets/${selectedTicket.id}/reject`, {
+        method: "PATCH",
+      });
+      const staffMessage = result.staffNotificationRecipients
+        ? `${result.staffNotificationsSent ?? 0}/${result.staffNotificationRecipients} notification(s) envoyée(s) au consultant et aux administrateurs.`
+        : "Aucun consultant ou administrateur à notifier.";
+      setMessage(`${selectedTicket.numero} rouvert et remis en cours. ${staffMessage}`);
+      await loadTickets(role);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Impossible de rejeter la résolution");
     }
   }
 
@@ -487,16 +533,16 @@ export default function HomePage() {
     }
   }
 
-  async function deleteTicket() {
+  async function archiveTicket() {
     if (!selectedTicket) {
       return;
     }
 
-    const shouldDelete = window.confirm(
-      `Supprimer définitivement ${selectedTicket.numero} ?`
+    const shouldArchive = window.confirm(
+      `Archiver ${selectedTicket.numero} ? Son historique sera conservé.`
     );
 
-    if (!shouldDelete) {
+    if (!shouldArchive) {
       return;
     }
 
@@ -504,11 +550,11 @@ export default function HomePage() {
       await apiJson<Ticket>(`/tickets/${selectedTicket.id}`, {
         method: "DELETE",
       });
-      setMessage(`${selectedTicket.numero} supprimé`);
+      setMessage(`${selectedTicket.numero} archivé. Son historique est conservé.`);
       setSelectedTicketId("");
       await loadTickets(role);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Impossible de supprimer le ticket");
+      setMessage(error instanceof Error ? error.message : "Impossible d'archiver le ticket");
     }
   }
 
@@ -604,9 +650,11 @@ export default function HomePage() {
   const canCreateTicket = role === "CLIENT";
   const canChangeStatus = role === "CONSULTANT";
   const canAssignTicket = role === "ADMINISTRATEUR";
-  const canDeleteTicket = role === "ADMINISTRATEUR";
+  const canArchiveTicket =
+    role === "ADMINISTRATEUR" && selectedTicket?.statut !== "CLOTURE";
   const canEditReport = role === "CONSULTANT";
   const canValidateTicket = role === "CLIENT" && selectedTicket?.statut === "RESOLU";
+  const canRejectTicket = role === "CLIENT" && selectedTicket?.statut === "RESOLU";
   const isClientResponseUpload =
     role === "CLIENT" && selectedTicket?.statut === "EN_ATTENTE_CLIENT";
   const hasSavedReport = Boolean(selectedTicket?.compteRendu?.contenu?.trim());
@@ -820,13 +868,13 @@ export default function HomePage() {
                   <em className={`status large ${selectedTicket.statut.toLowerCase()}`}>
                     {STATUS_LABEL[selectedTicket.statut]}
                   </em>
-                  {canDeleteTicket ? (
+                  {canArchiveTicket ? (
                     <button
                       className="danger-button"
-                      onClick={() => void deleteTicket()}
+                      onClick={() => void archiveTicket()}
                       type="button"
                     >
-                      Supprimer
+                      Archiver
                     </button>
                   ) : null}
                 </div>
@@ -870,15 +918,17 @@ export default function HomePage() {
                         ? nextStatuses.map((status) => (
                             <button
                               className="primary-button"
-                              disabled={
+                              disabled={isUpdatingStatus || (
                                 (status === "EN_ATTENTE_CLIENT" || status === "RESOLU") &&
                                 !hasSavedReport
-                              }
+                              )}
                               key={status}
                               onClick={() => void changeStatus(status)}
                               type="button"
                             >
-                              {statusActionLabel(selectedTicket.statut, status)}
+                              {isUpdatingStatus
+                                ? "Traitement..."
+                                : statusActionLabel(selectedTicket.statut, status)}
                             </button>
                           ))
                         : null}
@@ -891,11 +941,25 @@ export default function HomePage() {
                           Valider et clôturer
                         </button>
                       ) : null}
-                      {!canChangeStatus && !canValidateTicket ? (
+                      {canRejectTicket ? (
+                        <button
+                          className="danger-button"
+                          onClick={() => void rejectAsClient()}
+                          type="button"
+                        >
+                          Rejeter et rouvrir
+                        </button>
+                      ) : null}
+                      {!canChangeStatus && !canValidateTicket && !canRejectTicket ? (
                         <p className="empty-text">Le changement de statut est réservé au consultant.</p>
                       ) : null}
                       {canChangeStatus && nextStatuses.length === 0 ? (
                         <p className="empty-text">Aucune transition disponible.</p>
+                      ) : null}
+                      {statusActionMessage ? (
+                        <p aria-live="polite" className="empty-text" role="status">
+                          {statusActionMessage}
+                        </p>
                       ) : null}
                       {canChangeStatus &&
                       nextStatuses.some(

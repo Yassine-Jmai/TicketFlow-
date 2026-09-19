@@ -41,7 +41,7 @@ export class UsersController {
   @Get("consultants")
   getConsultants() {
     return this.prisma.utilisateur.findMany({
-      where: { role: Role.CONSULTANT },
+      where: { role: Role.CONSULTANT, deletedAt: null },
       orderBy: [{ nom: "asc" }, { prenom: "asc" }],
       select: {
         id: true,
@@ -57,7 +57,10 @@ export class UsersController {
   @Get("dev-identities")
   async getDevIdentities() {
     const users = await this.prisma.utilisateur.findMany({
-      where: { role: { in: [Role.CLIENT, Role.CONSULTANT, Role.ADMINISTRATEUR] } },
+      where: {
+        role: { in: [Role.CLIENT, Role.CONSULTANT, Role.ADMINISTRATEUR] },
+        deletedAt: null
+      },
       orderBy: { dateCreation: "asc" },
       select: {
         id: true,

@@ -205,6 +205,22 @@ export class TicketsController {
   }
 
   /**
+   * PATCH /tickets/:id/reject
+   * Reject an incorrect resolution and reopen the ticket
+   * User: Client
+   */
+  @Patch(":id/reject")
+  async rejectResolvedTicket(
+    @Param("id") ticketId: string,
+    @Headers() headers: Record<string, string | string[] | undefined>
+  ) {
+    return this.ticketsService.rejectResolvedByClient(
+      ticketId,
+      this.getCurrentUser(headers)
+    );
+  }
+
+  /**
    * DELETE /tickets/:id
    * Delete a ticket
    * User: Administrator

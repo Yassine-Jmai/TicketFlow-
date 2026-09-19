@@ -17,10 +17,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   async validate(payload: { sub: string; role: string }) {
     const user = await this.prisma.utilisateur.findUnique({
       where: { id: payload.sub },
-      select: { id: true, role: true }
+      select: { id: true, role: true, deletedAt: true }
     });
 
-    if (!user) {
+    if (!user || user.deletedAt) {
       throw new UnauthorizedException("Utilisateur introuvable");
     }
 
