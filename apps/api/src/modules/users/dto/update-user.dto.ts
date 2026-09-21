@@ -20,4 +20,13 @@ export class UpdateUserDto {
   @MaxLength(5000000)
   @Matches(/^(https?:\/\/|data:image\/)/, { message: "photoUrl must be an image URL or image file" })
   photoUrl?: string;
+
+  @IsString()
+  @IsOptional()
+  currentPassword?: string;
+
+  @IsString()
+  @IsOptional()
+  @MinLength(8)
+  newPassword?: string;
 }
