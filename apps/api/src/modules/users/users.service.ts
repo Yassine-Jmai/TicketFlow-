@@ -1,5 +1,5 @@
 // users.service.ts
-import { Injectable, ConflictException, NotFoundException } from "@nestjs/common";
+import { Injectable, ConflictException, NotFoundException, UnauthorizedException } from "@nestjs/common";
 import * as bcrypt from "bcrypt";
 import { PrismaService } from "../../prisma/prisma.service";
 import { CreateUserDto } from "./dto/create-user.dto";
@@ -133,9 +133,20 @@ export class UsersService {
     });
   }
 
-  async update(id: string, dto: { nom?: string; prenom?: string; email?: string; photoUrl?: string }) {
+  async update(id: string, dto: {
+    nom?: string;
+    prenom?: string;
+    email?: string;
+    photoUrl?: string;
+    currentPassword?: string;
+    newPassword?: string;
+  }) {
     const user = await this.prisma.utilisateur.findUnique({ where: { id } });
     if (!user) throw new NotFoundException("Utilisateur introuvable");
+
+    if (dto.newPassword && (!dto.currentPassword || !(await bcrypt.compare(dto.currentPassword, user.motDePasse)))) {
+      throw new UnauthorizedException("Current password is incorrect");
+    }
 
     if (dto.email && dto.email !== user.email) {
       const existing = await this.prisma.utilisateur.findUnique({ where: { email: dto.email } });
@@ -144,7 +155,13 @@ export class UsersService {
 
     return this.prisma.utilisateur.update({
       where: { id },
-      data: dto,
+      data: {
+        ...(dto.nom !== undefined ? { nom: dto.nom } : {}),
+        ...(dto.prenom !== undefined ? { prenom: dto.prenom } : {}),
+        ...(dto.email !== undefined ? { email: dto.email } : {}),
+        ...(dto.photoUrl !== undefined ? { photoUrl: dto.photoUrl } : {}),
+        ...(dto.newPassword ? { motDePasse: await bcrypt.hash(dto.newPassword, 10) } : {})
+      },
       select: SAFE_SELECT
     });
   }

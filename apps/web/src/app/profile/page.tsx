@@ -19,6 +19,9 @@ export default function ProfilePage() {
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [photoUrl, setPhotoUrl] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -78,6 +81,10 @@ export default function ProfilePage() {
     setIsSaving(true);
 
     try {
+      if (newPassword && newPassword !== confirmPassword) {
+        throw new Error("New passwords do not match.");
+      }
+
       const response = await fetch(`${apiBaseUrl}/users/me`, {
         method: "PUT",
         headers: {
@@ -88,7 +95,8 @@ export default function ProfilePage() {
           prenom: firstName,
           nom: lastName,
           email,
-          ...(photoUrl ? { photoUrl } : {})
+          ...(photoUrl ? { photoUrl } : {}),
+          ...(newPassword ? { currentPassword, newPassword } : {})
         })
       });
       const data = await response.json();
@@ -100,6 +108,9 @@ export default function ProfilePage() {
 
       setUser(data);
       window.localStorage.setItem("ticketflow_user", JSON.stringify(data));
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
       window.location.assign("/profile");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to update your profile.");
@@ -148,6 +159,12 @@ export default function ProfilePage() {
               <input id="profile-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
               <label htmlFor="profile-photo">Profile image</label>
               <input id="profile-photo" type="file" accept="image/*" onChange={selectPhoto} />
+              <label htmlFor="profile-current-password">Current password</label>
+              <input id="profile-current-password" type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" placeholder="Required to change password" />
+              <label htmlFor="profile-new-password">New password</label>
+              <input id="profile-new-password" type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} minLength={8} autoComplete="new-password" placeholder="At least 8 characters" />
+              <label htmlFor="profile-confirm-password">Confirm new password</label>
+              <input id="profile-confirm-password" type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} minLength={8} autoComplete="new-password" />
               <div className="profile-form-actions">
                 <button className="save-profile-button" type="submit" disabled={isSaving}>{isSaving ? "Saving..." : "Save changes"}</button>
                 <button className="cancel-profile-button" type="button" onClick={() => setIsEditing(false)}>Cancel</button>
