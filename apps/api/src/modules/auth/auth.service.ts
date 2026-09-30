@@ -17,8 +17,8 @@ export class AuthService {
   ) {}
 
   async login(dto: LoginDto) {
-    const user = await this.prisma.utilisateur.findUnique({
-      where: { email: dto.email }
+    const user = await this.prisma.utilisateur.findFirst({
+      where: { email: dto.email, deletedAt: null }
     });
 
     if (!user) {
@@ -50,7 +50,9 @@ export class AuthService {
   }
 
   async forgotPassword(dto: ForgotPasswordDto) {
-    const user = await this.prisma.utilisateur.findUnique({ where: { email: dto.email } });
+    const user = await this.prisma.utilisateur.findFirst({
+      where: { email: dto.email, deletedAt: null }
+    });
 
     if (user) {
       const code = String(100000 + (randomBytes(4).readUInt32BE(0) % 900000));
@@ -79,7 +81,9 @@ export class AuthService {
 
   async resetPassword(dto: ResetPasswordDto) {
     const codeHash = createHash("sha256").update(dto.code).digest("hex");
-    const user = await this.prisma.utilisateur.findUnique({ where: { email: dto.email } });
+    const user = await this.prisma.utilisateur.findFirst({
+      where: { email: dto.email, deletedAt: null }
+    });
 
     if (!user || user.passwordResetCodeHash !== codeHash || !user.passwordResetExpiresAt || user.passwordResetExpiresAt < new Date()) {
       throw new UnauthorizedException("Invalid or expired password reset code");

@@ -6,36 +6,14 @@ The project is organized as an npm workspace monorepo and uses Next.js, NestJS, 
 
 ## What it does
 
-- Registers users with email verification and supports password recovery
-- Presents a role-specific dashboard for clients, consultants, and administrators
-- Tracks ticket priority, product module, assignee, status, and full status history
-- Supports consultant intervention reports and client responses
-- Uploads and downloads PDF, image, text, and Word attachments up to 5 MB
-- Automatically returns a ticket to `EN_COURS` when a client answers a request for information
-- Lets clients approve resolved tickets and automatically closes tickets still awaiting approval after seven days
-- Gives administrators tools to assign tickets, manage account roles, and remove tickets
+- Account registration, email verification, login, password reset, and profile management
+- Role-based workspaces for clients, consultants, and administrators
+- Ticket creation, assignment, status tracking, and automatic closure
+- Intervention reports and file attachments
+- Ticket status history
+- Administrator account and role management
 
-## Technology
-
-| Area | Technology |
-| --- | --- |
-| Web application | Next.js 15, React 19, TypeScript |
-| API | NestJS 10, Passport JWT, class-validator |
-| Data | PostgreSQL, Prisma 5 |
-| Email | Brevo transactional email API |
-| Repository | npm workspaces |
-
-## Architecture
-
-```mermaid
-flowchart LR
-    Browser[Browser] --> Web[Next.js web app<br/>port 3000]
-    Web --> API[NestJS API<br/>port 3001]
-    API --> Prisma[Prisma ORM]
-    Prisma --> DB[(PostgreSQL)]
-    API --> Brevo[Brevo email API]
-    API --> Files[(Local attachment storage)]
-```
+## Project structure
 
 ```text
 TicketFlow/
@@ -70,14 +48,15 @@ npm install
 
 Create `apps/api/.env` with the following values:
 
-```env
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/ticketflow?schema=public"
-API_PORT="3001"
-JWT_SECRET="replace-this-with-a-long-random-secret"
-BREVO_API_KEY="your-brevo-api-key"
-BREVO_SENDER_EMAIL="verified-sender@example.com"
-APP_URL="http://localhost:3000"
-```
+   ```env
+   DATABASE_URL="postgresql://postgres:postgres@localhost:5432/ticketflow?schema=public"
+   NODE_ENV="development"
+   API_PORT="3001"
+   JWT_SECRET="replace-with-a-long-random-secret"
+   BREVO_API_KEY="your-brevo-api-key"
+   BREVO_SENDER_EMAIL="verified-sender@example.com"
+   APP_URL="http://localhost:3000"
+   ```
 
 Create the `ticketflow` PostgreSQL database first, and adjust the connection string for your local username, password, host, and database name.
 
@@ -91,18 +70,9 @@ Create `apps/web/.env.local`:
 NEXT_PUBLIC_API_URL="http://localhost:3001"
 ```
 
-This file is optional for the default ports, but keeping it explicit makes local configuration easier to understand.
+   The frontend uses this URL by default, so the file is only required when the API runs elsewhere.
 
-### 4. Prepare the database
-
-Generate the Prisma client and synchronize the development database with the current schema:
-
-```bash
-npm exec --workspace=@ticketflow/api -- prisma generate
-npm exec --workspace=@ticketflow/api -- prisma db push
-```
-
-Optional sample data can be added with:
+4. Create the local database schema and seed the ticket modules:
 
 ```bash
 npm run prisma:seed --workspace=@ticketflow/api

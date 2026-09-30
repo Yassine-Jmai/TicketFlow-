@@ -14,7 +14,8 @@ const SAFE_SELECT = {
   email: true,
   photoUrl: true,
   role: true,
-  dateCreation: true
+  dateCreation: true,
+  deletedAt: true
 };
 
 @Injectable()
@@ -28,6 +29,7 @@ export class UsersService {
     return this.prisma.utilisateur.findMany({
       where: {
         role: { in: ["CLIENT", "CONSULTANT"] },
+        deletedAt: null,
         id: excludeUserId ? { not: excludeUserId } : undefined
       },
       select: SAFE_SELECT
@@ -39,7 +41,7 @@ export class UsersService {
       where: { id },
       select: SAFE_SELECT
     });
-    if (!user) throw new NotFoundException("Utilisateur introuvable");
+    if (!user || user.deletedAt) throw new NotFoundException("Utilisateur introuvable");
     return user;
   }
 
@@ -89,7 +91,9 @@ export class UsersService {
 
   async verifyEmail(token: string) {
     const verificationTokenHash = createHash("sha256").update(token).digest("hex");
-    const user = await this.prisma.utilisateur.findFirst({ where: { verificationTokenHash } });
+    const user = await this.prisma.utilisateur.findFirst({
+      where: { verificationTokenHash, deletedAt: null }
+    });
 
     if (!user || !user.verificationExpiresAt || user.verificationExpiresAt < new Date()) {
       throw new NotFoundException("Lien de vérification invalide ou expiré");
@@ -109,7 +113,9 @@ export class UsersService {
 
   async verifyEmailCode(email: string, code: string) {
     const verificationCodeHash = createHash("sha256").update(code).digest("hex");
-    const user = await this.prisma.utilisateur.findUnique({ where: { email } });
+    const user = await this.prisma.utilisateur.findFirst({
+      where: { email, deletedAt: null }
+    });
 
     if (
       !user ||
@@ -142,7 +148,7 @@ export class UsersService {
     newPassword?: string;
   }) {
     const user = await this.prisma.utilisateur.findUnique({ where: { id } });
-    if (!user) throw new NotFoundException("Utilisateur introuvable");
+    if (!user || user.deletedAt) throw new NotFoundException("Utilisateur introuvable");
 
     if (dto.newPassword && (!dto.currentPassword || !(await bcrypt.compare(dto.currentPassword, user.motDePasse)))) {
       throw new UnauthorizedException("Current password is incorrect");
@@ -172,7 +178,7 @@ export class UsersService {
     }
 
     const user = await this.prisma.utilisateur.findUnique({ where: { id } });
-    if (!user) throw new NotFoundException("Utilisateur introuvable");
+    if (!user || user.deletedAt) throw new NotFoundException("Utilisateur introuvable");
 
     if (user.role === "ADMINISTRATEUR") {
       throw new ConflictException("Le rôle d'un administrateur ne peut pas être modifié ici");
@@ -204,28 +210,26 @@ export class UsersService {
     }
 
     const user = await this.prisma.utilisateur.findUnique({ where: { id } });
-    if (!user) throw new NotFoundException("Utilisateur introuvable");
+    if (!user || user.deletedAt) throw new NotFoundException("Utilisateur introuvable");
     if (user.role === "ADMINISTRATEUR") {
       throw new ConflictException("Le compte d'un administrateur ne peut pas être supprimé ici");
     }
 
+    const deletedAt = new Date();
+
     await this.prisma.$transaction(async (transaction) => {
-      const ownedTickets = await transaction.ticket.findMany({
-        where: { clientId: id },
-        select: { id: true }
-      });
-      const ownedTicketIds = ownedTickets.map((ticket) => ticket.id);
-
-      if (ownedTicketIds.length > 0) {
-        await transaction.pieceJointe.deleteMany({ where: { ticketId: { in: ownedTicketIds } } });
-        await transaction.compteRendu.deleteMany({ where: { ticketId: { in: ownedTicketIds } } });
-        await transaction.historiqueStatut.deleteMany({ where: { ticketId: { in: ownedTicketIds } } });
-        await transaction.ticket.deleteMany({ where: { id: { in: ownedTicketIds } } });
-      }
-
-      await transaction.historiqueStatut.deleteMany({ where: { auteurId: id } });
       await transaction.ticket.updateMany({ where: { assigneeId: id }, data: { assigneeId: null } });
-      await transaction.utilisateur.delete({ where: { id } });
+      await transaction.utilisateur.update({
+        where: { id },
+        data: {
+          deletedAt,
+          verificationTokenHash: null,
+          verificationCodeHash: null,
+          verificationExpiresAt: null,
+          passwordResetCodeHash: null,
+          passwordResetExpiresAt: null
+        }
+      });
     });
 
     try {
@@ -236,9 +240,9 @@ export class UsersService {
         message: "An administrator deleted your TicketFlow account. You can no longer sign in with this account."
       });
     } catch {
-      // The account is already deleted if email delivery is temporarily unavailable.
+      // The account remains disabled if email delivery is temporarily unavailable.
     }
 
-    return { id, deleted: true };
+    return { id, deleted: true, deletedAt };
   }
 }

@@ -42,9 +42,12 @@ model Utilisateur {
   passwordResetCodeHash String?
   passwordResetExpiresAt DateTime?
   dateCreation  DateTime           @default(now())
+  deletedAt     DateTime?
   ticketsAssigne Ticket[]          @relation("TicketAssignee")
   ticketsClients Ticket[]          @relation("TicketClient")
   historiques   HistoriqueStatut[]  @relation("HistoriqueAuteur")
+
+  @@index([deletedAt])
 }
 
 model TicketModule {
@@ -64,6 +67,7 @@ model Ticket {
   dateCreation     DateTime          @default(now())
   dateModification DateTime          @updatedAt
   dateCloture      DateTime?
+  archivedAt       DateTime?
 
   moduleId         String
   module           TicketModule      @relation(fields: [moduleId], references: [id])
@@ -83,6 +87,7 @@ model Ticket {
   @@index([moduleId])
   @@index([statut])
   @@index([dateCreation])
+  @@index([archivedAt])
 }
 
 model PieceJointe {
