@@ -64,8 +64,8 @@ export default function ClientManagementPage() {
     }
   }
 
-  async function deleteUser(managedUser: User) {
-    if (!window.confirm(`Delete the account for ${managedUser.prenom} ${managedUser.nom}? This cannot be undone.`)) return;
+  async function deactivateUser(managedUser: User) {
+    if (!window.confirm(`Deactivate the account for ${managedUser.prenom} ${managedUser.nom}? Ticket and status history will be preserved.`)) return;
 
     setDeletingUserId(managedUser.id);
     setError("");
@@ -77,12 +77,12 @@ export default function ClientManagementPage() {
         headers: { Authorization: `Bearer ${window.localStorage.getItem("ticketflow_access_token") ?? ""}` }
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.message ?? "Unable to delete this account.");
+      if (!response.ok) throw new Error(data.message ?? "Unable to deactivate this account.");
 
       setUsers((currentUsers) => currentUsers.filter((item) => item.id !== managedUser.id));
-      setNotice(`Account deleted for ${managedUser.prenom} ${managedUser.nom}.`);
+      setNotice(`Account deactivated for ${managedUser.prenom} ${managedUser.nom}. History was preserved.`);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Unable to delete this account.");
+      setError(requestError instanceof Error ? requestError.message : "Unable to deactivate this account.");
     } finally {
       setDeletingUserId("");
     }
@@ -144,9 +144,9 @@ export default function ClientManagementPage() {
                     className="danger-button"
                     type="button"
                     disabled={savingRoleId === managedUser.id || deletingUserId === managedUser.id}
-                    onClick={() => deleteUser(managedUser)}
+                    onClick={() => deactivateUser(managedUser)}
                   >
-                    {deletingUserId === managedUser.id ? "Deleting..." : "Delete"}
+                    {deletingUserId === managedUser.id ? "Deactivating..." : "Deactivate"}
                   </button>
                 </div>
               </div>

@@ -10,6 +10,7 @@ TicketFlow is a customer-support ticket management platform built as an npm mono
 - Intervention reports and file attachments
 - Ticket status history
 - Administrator account and role management
+- Explainable consultant assignment recommendations based on workload and ticket history
 
 ## Project structure
 
@@ -46,6 +47,8 @@ packages/
    BREVO_API_KEY="your-brevo-api-key"
    BREVO_SENDER_EMAIL="verified-sender@example.com"
    APP_URL="http://localhost:3000"
+   OPENAI_API_KEY="optional-openai-api-key"
+   OPENAI_MODEL="gpt-4o-mini"
    ```
 
 3. Optionally create `apps/web/.env.local`:
@@ -54,7 +57,12 @@ packages/
    NEXT_PUBLIC_API_URL="http://localhost:3001"
    ```
 
-   The frontend uses this URL by default, so the file is only required when the API runs elsewhere.
+The frontend uses this URL by default, so the file is only required when the API runs elsewhere.
+
+`OPENAI_API_KEY` is optional. Without it, assignment recommendations still use
+the deterministic workload and performance score. With it, the API also compares
+the ticket with each consultant's recent resolved work and returns an AI-enhanced,
+structured explanation. The administrator always makes the final assignment.
 
 4. Create the local database schema and seed the ticket modules:
 
