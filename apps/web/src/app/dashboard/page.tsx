@@ -108,6 +108,30 @@ type CreateTicketForm = {
   priorite: TicketPriority;
 };
 
+type AssignmentRecommendation = {
+  consultant: Pick<User, "id" | "email" | "nom" | "prenom">;
+  score: number;
+  baselineScore: number;
+  aiFitScore: number | null;
+  reasons: string[];
+  warnings: string[];
+  metrics: {
+    activeTickets: number;
+    completedTickets: number;
+    sameModuleCompletedTickets: number;
+    completionRate: number;
+    averageResolutionHours: number | null;
+  };
+};
+
+type AssignmentAdvice = {
+  aiEnhanced: boolean;
+  model: string | null;
+  summary: string;
+  requiredSkills: string[];
+  recommendations: AssignmentRecommendation[];
+};
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
@@ -239,6 +263,9 @@ export default function HomePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [statusActionMessage, setStatusActionMessage] = useState("");
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [assignmentAdvice, setAssignmentAdvice] = useState<AssignmentAdvice | null>(null);
+  const [isLoadingAssignmentAdvice, setIsLoadingAssignmentAdvice] = useState(false);
+  const [isAssigningConsultant, setIsAssigningConsultant] = useState(false);
   const createFileInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -370,6 +397,7 @@ export default function HomePage() {
   useEffect(() => {
     setReportContent(selectedTicket?.compteRendu?.contenu ?? "");
     setAssigneeId(selectedTicket?.assigneeId || consultants[0]?.id || "");
+    setAssignmentAdvice(null);
   }, [
     selectedTicket?.id,
     selectedTicket?.compteRendu?.contenu,
@@ -517,19 +545,68 @@ export default function HomePage() {
   async function assignTicket(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!selectedTicket) {
+    await assignConsultant(assigneeId);
+  }
+
+  async function assignConsultant(consultantId: string) {
+    if (!selectedTicket || !consultantId || isAssigningConsultant) {
       return;
     }
+
+    const consultant = consultants.find((candidate) => candidate.id === consultantId);
+    setIsAssigningConsultant(true);
+    setAssigneeId(consultantId);
 
     try {
       await apiJson<Ticket>(`/tickets/${selectedTicket.id}/assign`, {
         method: "PATCH",
-        body: JSON.stringify({ consultantId: assigneeId }),
+        body: JSON.stringify({ consultantId }),
       });
-      setMessage("Ticket affecté");
+      setAssignmentAdvice(null);
       await loadTickets(role);
+      setMessage(
+        consultant
+          ? `${selectedTicket.numero} affecté à ${userName(consultant)}`
+          : "Ticket affecté"
+      );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Impossible d'affecter le ticket");
+    } finally {
+      setIsAssigningConsultant(false);
+    }
+  }
+
+  async function loadAssignmentAdvice() {
+    if (!selectedTicket) {
+      return;
+    }
+
+    setIsLoadingAssignmentAdvice(true);
+    setAssignmentAdvice(null);
+
+    try {
+      const advice = await apiJson<AssignmentAdvice>(
+        `/tickets/${selectedTicket.id}/assignment-recommendations`
+      );
+      setAssignmentAdvice(advice);
+
+      if (advice.recommendations[0]) {
+        setAssigneeId(advice.recommendations[0].consultant.id);
+      }
+
+      setMessage(
+        advice.aiEnhanced
+          ? "Recommandation IA générée. Vérifiez les critères avant d'affecter."
+          : "Recommandation calculée à partir de la charge et de l'historique."
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Impossible de calculer la recommandation d'affectation"
+      );
+    } finally {
+      setIsLoadingAssignmentAdvice(false);
     }
   }
 
@@ -650,6 +727,9 @@ export default function HomePage() {
   const canCreateTicket = role === "CLIENT";
   const canChangeStatus = role === "CONSULTANT";
   const canAssignTicket = role === "ADMINISTRATEUR";
+  const isSelectedConsultantAssigned = Boolean(
+    selectedTicket?.assigneeId && selectedTicket.assigneeId === assigneeId
+  );
   const canArchiveTicket =
     role === "ADMINISTRATEUR" && selectedTicket?.statut !== "CLOTURE";
   const canEditReport = role === "CONSULTANT";
@@ -975,8 +1055,93 @@ export default function HomePage() {
                 {canAssignTicket ? (
                   <form className="tool-panel" onSubmit={assignTicket}>
                     <div className="panel-heading">
-                      <h3>Assignment</h3>
+                      <h3>Affectation intelligente</h3>
+                      <span>Décision admin</span>
                     </div>
+                    <button
+                      className="secondary-button ai-advice-button"
+                      disabled={
+                        isLoadingAssignmentAdvice ||
+                        selectedTicket.statut === "CLOTURE" ||
+                        consultants.length === 0
+                      }
+                      onClick={() => void loadAssignmentAdvice()}
+                      type="button"
+                    >
+                      {isLoadingAssignmentAdvice
+                        ? "Analyse en cours..."
+                        : "Recommander un consultant"}
+                    </button>
+                    {assignmentAdvice ? (
+                      <section className="assignment-advice" aria-live="polite">
+                        <div className="assignment-advice-heading">
+                          <strong>
+                            {assignmentAdvice.aiEnhanced ? "IA + données" : "Score opérationnel"}
+                          </strong>
+                          <span>
+                            {assignmentAdvice.aiEnhanced
+                              ? assignmentAdvice.model ?? "OpenAI"
+                              : "Mode sans clé IA"}
+                          </span>
+                        </div>
+                        <p>{assignmentAdvice.summary}</p>
+                        {assignmentAdvice.requiredSkills.length ? (
+                          <div className="skill-list">
+                            {assignmentAdvice.requiredSkills.map((skill) => (
+                              <span key={skill}>{skill}</span>
+                            ))}
+                          </div>
+                        ) : null}
+                        <div className="recommendation-list">
+                          {assignmentAdvice.recommendations.map((recommendation, index) => (
+                            <button
+                              aria-pressed={assigneeId === recommendation.consultant.id}
+                              className={`recommendation-card ${
+                                assigneeId === recommendation.consultant.id ? "selected" : ""
+                              }`}
+                              disabled={
+                                selectedTicket.statut === "CLOTURE" ||
+                                isAssigningConsultant ||
+                                selectedTicket.assigneeId === recommendation.consultant.id
+                              }
+                              key={recommendation.consultant.id}
+                              onClick={() =>
+                                void assignConsultant(recommendation.consultant.id)
+                              }
+                              type="button"
+                            >
+                              <span className="recommendation-title">
+                                <span>
+                                  <small>#{index + 1}</small>
+                                  {userName(recommendation.consultant)}
+                                </span>
+                                <strong>{recommendation.score}%</strong>
+                              </span>
+                              <span className="recommendation-metrics">
+                                {recommendation.metrics.activeTickets} actif(s) ·{" "}
+                                {recommendation.metrics.sameModuleCompletedTickets} résolu(s) sur ce module
+                              </span>
+                              <span className="recommendation-reasons">
+                                {recommendation.reasons.slice(0, 3).map((reason) => (
+                                  <span key={reason}>• {reason}</span>
+                                ))}
+                              </span>
+                              {recommendation.warnings[0] ? (
+                                <span className="recommendation-warning">
+                                  Attention : {recommendation.warnings[0]}
+                                </span>
+                              ) : null}
+                            </button>
+                          ))}
+                        </div>
+                        {!assignmentAdvice.aiEnhanced ? (
+                          <small className="ai-fallback-note">
+                            Ajoutez OPENAI_API_KEY côté API pour enrichir ce classement avec
+                            l'analyse sémantique des tickets similaires.
+                          </small>
+                        ) : null}
+                      </section>
+                    ) : null}
                     <label>
                       Consultant
                       <select
@@ -993,10 +1158,19 @@ export default function HomePage() {
                     </label>
                     <button
                       className="secondary-button"
-                      disabled={!assigneeId || selectedTicket.statut === "CLOTURE"}
+                      disabled={
+                        !assigneeId ||
+                        selectedTicket.statut === "CLOTURE" ||
+                        isAssigningConsultant ||
+                        isSelectedConsultantAssigned
+                      }
                       type="submit"
                     >
-                      Assign
+                      {isAssigningConsultant
+                        ? "Affectation..."
+                        : isSelectedConsultantAssigned
+                          ? "Déjà affecté"
+                          : "Affecter"}
                     </button>
                   </form>
                 ) : null}

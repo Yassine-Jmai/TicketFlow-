@@ -407,6 +407,121 @@
   border-color: var(--accent);
 }
 
+.ai-advice-button {
+  width: 100%;
+}
+
+.assignment-advice {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(35, 91, 216, 0.18);
+  border-radius: 10px;
+  background: linear-gradient(145deg, rgba(234, 240, 255, 0.72), rgba(255, 255, 255, 0.94));
+}
+
+.assignment-advice-heading,
+.recommendation-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.assignment-advice-heading strong {
+  color: var(--accent);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.assignment-advice-heading > span {
+  color: var(--muted);
+  font-size: 0.62rem;
+}
+
+.assignment-advice > p,
+.ai-fallback-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+
+.skill-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.skill-list span {
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: rgba(35, 91, 216, 0.1);
+  color: var(--accent);
+  font-size: 0.62rem;
+  font-weight: 700;
+}
+
+.recommendation-list,
+.recommendation-reasons {
+  display: grid;
+  gap: 7px;
+}
+
+.recommendation-card {
+  display: grid;
+  gap: 7px;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid rgba(20, 28, 56, 0.12);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition: 150ms ease;
+}
+
+.recommendation-card:hover,
+.recommendation-card.selected {
+  border-color: rgba(35, 91, 216, 0.55);
+  box-shadow: 0 6px 18px rgba(35, 91, 216, 0.1);
+}
+
+.recommendation-card.selected {
+  background: white;
+}
+
+.recommendation-title > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.73rem;
+  font-weight: 700;
+}
+
+.recommendation-title small {
+  color: var(--accent);
+}
+
+.recommendation-title > strong {
+  color: var(--accent);
+  font-size: 0.85rem;
+}
+
+.recommendation-metrics,
+.recommendation-reasons,
+.recommendation-warning {
+  color: var(--muted);
+  font-size: 0.64rem;
+  line-height: 1.4;
+}
+
+.recommendation-warning {
+  color: #986200;
+}
+
 .primary-button:disabled,
 .secondary-button:disabled,
 .ghost-button:disabled,

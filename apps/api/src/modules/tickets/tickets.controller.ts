@@ -137,6 +137,21 @@ export class TicketsController {
   }
 
   /**
+   * GET /tickets/:id/assignment-recommendations
+   * Rank active consultants for an administrator without assigning automatically.
+   */
+  @Get(":id/assignment-recommendations")
+  async getAssignmentRecommendations(
+    @Param("id") ticketId: string,
+    @Headers() headers: Record<string, string | string[] | undefined>
+  ) {
+    return this.ticketsService.getAssignmentRecommendations(
+      ticketId,
+      this.getCurrentUser(headers)
+    );
+  }
+
+  /**
    * GET /tickets/:id
    * Get ticket details
    * User: Client or Consultant

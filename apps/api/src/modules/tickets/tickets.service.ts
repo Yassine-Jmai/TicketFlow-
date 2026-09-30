@@ -11,6 +11,10 @@ import { CreateCompteRenduDto } from "./dto/create-compte-rendu.dto";
 import { Role, StatutTicket } from "@prisma/client";
 import { existsSync, unlinkSync } from "fs";
 import { EmailService } from "../email/email.service";
+import {
+  AssignmentAdvisorCandidate,
+  AssignmentAdvisorService,
+} from "../ai/assignment-advisor.service";
 
 const ALLOWED_STATUS_TRANSITIONS: Record<StatutTicket, StatutTicket[]> = {
   [StatutTicket.NOUVEAU]: [StatutTicket.EN_COURS],
@@ -38,8 +42,13 @@ export class TicketsService {
 
   constructor(
     private prisma: PrismaService,
-    private emailService: EmailService
+    private emailService: EmailService,
+    private assignmentAdvisor: AssignmentAdvisorService
   ) {}
+
+  private clampScore(value: number) {
+    return Math.max(0, Math.min(100, value));
+  }
 
   private async notifyClientOfStatusChange(
     ticket: {
@@ -449,6 +458,243 @@ export class TicketsService {
     }
 
     return ticket;
+  }
+
+  async getAssignmentRecommendations(ticketId: string, actor: TicketActor) {
+    this.ensureRole(actor, [Role.ADMINISTRATEUR]);
+
+    const ticket = await this.prisma.ticket.findUnique({
+      where: { id: ticketId },
+      select: {
+        id: true,
+        objet: true,
+        description: true,
+        priorite: true,
+        statut: true,
+        archivedAt: true,
+        moduleId: true,
+        module: { select: { nom: true } },
+      },
+    });
+
+    if (!ticket || ticket.archivedAt) {
+      throw new NotFoundException("Ticket not found");
+    }
+
+    if (ticket.statut === StatutTicket.CLOTURE) {
+      throw new BadRequestException("A closed ticket cannot be assigned");
+    }
+
+    const consultants = await this.prisma.utilisateur.findMany({
+      where: { role: Role.CONSULTANT, deletedAt: null },
+      select: {
+        id: true,
+        nom: true,
+        prenom: true,
+        email: true,
+        ticketsAssigne: {
+          select: {
+            id: true,
+            objet: true,
+            description: true,
+            moduleId: true,
+            module: { select: { nom: true } },
+            statut: true,
+            dateCreation: true,
+            dateCloture: true,
+            archivedAt: true,
+          },
+          orderBy: { dateModification: "desc" },
+        },
+      },
+      orderBy: [{ prenom: "asc" }, { nom: "asc" }],
+    });
+
+    if (consultants.length === 0) {
+      return {
+        aiEnhanced: false,
+        model: null,
+        summary: "Aucun consultant actif n'est disponible pour ce ticket.",
+        requiredSkills: [ticket.module.nom],
+        recommendations: [],
+      };
+    }
+
+    const completedStatuses = new Set<StatutTicket>([
+      StatutTicket.RESOLU,
+      StatutTicket.CLOTURE,
+    ]);
+    const activeStatuses = new Set<StatutTicket>([
+      StatutTicket.NOUVEAU,
+      StatutTicket.EN_COURS,
+      StatutTicket.EN_ATTENTE_CLIENT,
+    ]);
+    const activeCounts = consultants.map((consultant) =>
+      consultant.ticketsAssigne.filter(
+        (assignedTicket) =>
+          !assignedTicket.archivedAt && activeStatuses.has(assignedTicket.statut)
+      ).length
+    );
+    const estimatedCapacity = Math.max(
+      3,
+      Math.ceil(activeCounts.reduce((sum, count) => sum + count, 0) / consultants.length) + 2
+    );
+
+    const candidates = consultants.map((consultant, index) => {
+      const historicalTickets = consultant.ticketsAssigne.filter(
+        (assignedTicket) => assignedTicket.id !== ticket.id
+      );
+      const completedTickets = historicalTickets.filter((assignedTicket) =>
+        completedStatuses.has(assignedTicket.statut)
+      );
+      const sameModuleTickets = historicalTickets.filter(
+        (assignedTicket) => assignedTicket.moduleId === ticket.moduleId
+      );
+      const sameModuleCompletedTickets = sameModuleTickets.filter((assignedTicket) =>
+        completedStatuses.has(assignedTicket.statut)
+      );
+      const completionRate = historicalTickets.length
+        ? (completedTickets.length / historicalTickets.length) * 100
+        : 50;
+      const sameModuleCompletionRate = sameModuleTickets.length
+        ? (sameModuleCompletedTickets.length / sameModuleTickets.length) * 100
+        : 0;
+      const resolutionDurations = completedTickets
+        .filter((assignedTicket) => assignedTicket.dateCloture)
+        .map(
+          (assignedTicket) =>
+            (assignedTicket.dateCloture!.getTime() - assignedTicket.dateCreation.getTime()) /
+            3_600_000
+        )
+        .filter((duration) => duration >= 0);
+      const averageResolutionHours = resolutionDurations.length
+        ? resolutionDurations.reduce((sum, duration) => sum + duration, 0) /
+          resolutionDurations.length
+        : null;
+      const activeTickets = activeCounts[index];
+      const expertiseScore = sameModuleTickets.length
+        ? this.clampScore(
+            35 +
+              Math.min(40, sameModuleCompletedTickets.length * 10) +
+              sameModuleCompletionRate * 0.25
+          )
+        : 35;
+      const workloadScore = this.clampScore(
+        100 - (activeTickets / estimatedCapacity) * 100
+      );
+      const speedScore = averageResolutionHours === null
+        ? 50
+        : this.clampScore(100 - (averageResolutionHours / (24 * 14)) * 80);
+      const baselineScore = Math.round(
+        expertiseScore * 0.4 +
+          workloadScore * 0.25 +
+          completionRate * 0.2 +
+          speedScore * 0.15
+      );
+      const reasons = [
+        sameModuleCompletedTickets.length
+          ? `${sameModuleCompletedTickets.length} ticket(s) déjà résolu(s) dans ${ticket.module.nom}`
+          : `Pas encore d'historique résolu dans ${ticket.module.nom}`,
+        `${activeTickets} ticket(s) actif(s) sur une capacité estimée à ${estimatedCapacity}`,
+        historicalTickets.length
+          ? `Taux de résolution historique de ${Math.round(completionRate)} %`
+          : "Nouveau profil sans historique de traitement",
+      ];
+      const warnings = [
+        ...(activeTickets >= estimatedCapacity
+          ? ["Charge active actuellement élevée"]
+          : []),
+        ...(sameModuleTickets.length === 0
+          ? ["Aucune expérience historique sur ce module"]
+          : []),
+      ];
+
+      const advisorCandidate: AssignmentAdvisorCandidate = {
+        consultantId: consultant.id,
+        baselineScore,
+        activeTickets,
+        completedTickets: completedTickets.length,
+        sameModuleTickets: sameModuleTickets.length,
+        sameModuleCompletedTickets: sameModuleCompletedTickets.length,
+        completionRate: Math.round(completionRate),
+        averageResolutionHours:
+          averageResolutionHours === null ? null : Math.round(averageResolutionHours),
+        recentCompletedTickets: completedTickets.slice(0, 5).map((completedTicket) => ({
+          subject: completedTicket.objet.slice(0, 180),
+          description: completedTicket.description.slice(0, 600),
+          module: completedTicket.module.nom,
+        })),
+      };
+
+      return {
+        consultant: {
+          id: consultant.id,
+          nom: consultant.nom,
+          prenom: consultant.prenom,
+          email: consultant.email,
+        },
+        baselineScore,
+        reasons,
+        warnings,
+        metrics: {
+          activeTickets,
+          completedTickets: completedTickets.length,
+          sameModuleCompletedTickets: sameModuleCompletedTickets.length,
+          completionRate: Math.round(completionRate),
+          averageResolutionHours:
+            averageResolutionHours === null ? null : Math.round(averageResolutionHours),
+        },
+        advisorCandidate,
+      };
+    });
+
+    const aiAnalysis = await this.assignmentAdvisor.analyze(
+      {
+        subject: ticket.objet.slice(0, 240),
+        description: ticket.description.slice(0, 2_000),
+        module: ticket.module.nom,
+        priority: ticket.priorite,
+      },
+      candidates.map((candidate) => candidate.advisorCandidate)
+    );
+    const aiRankingByConsultant = new Map(
+      aiAnalysis?.rankings.map((ranking) => [ranking.consultantId, ranking]) ?? []
+    );
+
+    const recommendations = candidates
+      .map((candidate) => {
+        const aiRanking = aiRankingByConsultant.get(candidate.consultant.id);
+        const score = aiRanking
+          ? Math.round(candidate.baselineScore * 0.6 + aiRanking.fitScore * 0.4)
+          : candidate.baselineScore;
+
+        return {
+          consultant: candidate.consultant,
+          score,
+          baselineScore: candidate.baselineScore,
+          aiFitScore: aiRanking ? Math.round(aiRanking.fitScore) : null,
+          reasons: aiRanking
+            ? [...aiRanking.reasons.slice(0, 2), ...candidate.reasons.slice(0, 2)]
+            : candidate.reasons,
+          warnings: aiRanking
+            ? [...aiRanking.warnings, ...candidate.warnings].slice(0, 3)
+            : candidate.warnings,
+          metrics: candidate.metrics,
+        };
+      })
+      .sort((left, right) => right.score - left.score)
+      .slice(0, 3);
+
+    return {
+      aiEnhanced: Boolean(aiAnalysis),
+      model: aiAnalysis?.model ?? null,
+      summary: aiAnalysis?.summary ||
+        "Classement calculé à partir de l'expérience par module, de la charge active et des résultats historiques.",
+      requiredSkills: aiAnalysis?.requiredSkills.length
+        ? aiAnalysis.requiredSkills
+        : [ticket.module.nom],
+      recommendations,
+    };
   }
 
   /**
