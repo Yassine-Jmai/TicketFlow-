@@ -8,6 +8,7 @@ import {
 import { PrismaService } from "../../prisma/prisma.service";
 import { CreateTicketDto } from "./dto/create-ticket.dto";
 import { CreateCompteRenduDto } from "./dto/create-compte-rendu.dto";
+import { CreateMessageDto } from "./dto/create-message.dto";
 import { Role, StatutTicket } from "@prisma/client";
 import { existsSync, unlinkSync } from "fs";
 import { EmailService } from "../email/email.service";
@@ -948,6 +949,43 @@ export class TicketsService {
     });
 
     return compteRendu;
+  }
+
+  async getMessages(ticketId: string, actor: TicketActor) {
+    await this.getTicketForActor(ticketId, actor);
+
+    return this.prisma.ticketMessage.findMany({
+      where: { ticketId },
+      orderBy: { dateCreation: "asc" },
+      include: {
+        auteur: {
+          select: { id: true, email: true, nom: true, prenom: true, role: true },
+        },
+      },
+    });
+  }
+
+  async createMessage(
+    ticketId: string,
+    createMessageDto: CreateMessageDto,
+    actor: TicketActor
+  ) {
+    const ticket = await this.getTicketById(ticketId);
+    this.ensureTicketAccess(ticket, actor);
+    this.ensureTicketIsMutable(ticket.statut, ticket.archivedAt);
+
+    return this.prisma.ticketMessage.create({
+      data: {
+        contenu: createMessageDto.contenu.trim(),
+        auteurId: actor.id,
+        ticketId,
+      },
+      include: {
+        auteur: {
+          select: { id: true, email: true, nom: true, prenom: true, role: true },
+        },
+      },
+    });
   }
 
   /**

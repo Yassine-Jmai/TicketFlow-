@@ -46,6 +46,7 @@ model Utilisateur {
   ticketsAssigne Ticket[]          @relation("TicketAssignee")
   ticketsClients Ticket[]          @relation("TicketClient")
   historiques   HistoriqueStatut[]  @relation("HistoriqueAuteur")
+  messages      TicketMessage[]     @relation("MessageAuthor")
 
   @@index([deletedAt])
 }
@@ -81,6 +82,7 @@ model Ticket {
   pieceJointes     PieceJointe[]
   compteRendu      CompteRendu?
   historiques      HistoriqueStatut[]
+  messages         TicketMessage[]
 
   @@index([clientId])
   @@index([assigneeId])
@@ -127,4 +129,19 @@ model HistoriqueStatut {
   ticket         Ticket       @relation(fields: [ticketId], references: [id])
 
   @@index([ticketId])
+}
+
+model TicketMessage {
+  id           String      @id @default(uuid())
+  contenu      String
+  dateCreation DateTime    @default(now())
+
+  auteurId     String
+  auteur       Utilisateur @relation("MessageAuthor", fields: [auteurId], references: [id])
+
+  ticketId     String
+  ticket       Ticket      @relation(fields: [ticketId], references: [id])
+
+  @@index([ticketId, dateCreation])
+  @@index([auteurId])
 }

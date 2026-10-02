@@ -25,6 +25,7 @@ import { TicketsService, TicketActor } from "./tickets.service";
 import { CreateTicketDto } from "./dto/create-ticket.dto";
 import { UpdateTicketStatusDto } from "./dto/update-ticket-status.dto";
 import { CreateCompteRenduDto } from "./dto/create-compte-rendu.dto";
+import { CreateMessageDto } from "./dto/create-message.dto";
 import { AssignTicketDto } from "./dto/assign-ticket.dto";
 
 const multer = require("multer");
@@ -134,6 +135,35 @@ export class TicketsController {
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
     return this.ticketsService.getAssignedTickets(this.getCurrentUser(headers));
+  }
+
+  /**
+   * GET /tickets/:id/messages
+   * Get the conversation for a ticket.
+   */
+  @Get(":id/messages")
+  async getMessages(
+    @Param("id") ticketId: string,
+    @Headers() headers: Record<string, string | string[] | undefined>
+  ) {
+    return this.ticketsService.getMessages(ticketId, this.getCurrentUser(headers));
+  }
+
+  /**
+   * POST /tickets/:id/messages
+   * Add a message to the conversation.
+   */
+  @Post(":id/messages")
+  async createMessage(
+    @Param("id") ticketId: string,
+    @Body() createMessageDto: CreateMessageDto,
+    @Headers() headers: Record<string, string | string[] | undefined>
+  ) {
+    return this.ticketsService.createMessage(
+      ticketId,
+      createMessageDto,
+      this.getCurrentUser(headers)
+    );
   }
 
   /**

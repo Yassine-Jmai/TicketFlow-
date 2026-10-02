@@ -80,6 +80,13 @@ type HistoryEntry = {
   auteur?: Pick<User, "id" | "email" | "nom" | "prenom">;
 };
 
+type TicketMessage = {
+  id: string;
+  contenu: string;
+  dateCreation: string;
+  auteur: Pick<User, "id" | "email" | "nom" | "prenom"> & { role: UserRole };
+};
+
 type Ticket = {
   id: string;
   numero: string;
@@ -262,6 +269,10 @@ export default function HomePage() {
   const [message, setMessage] = useState("Prêt");
   const [isLoading, setIsLoading] = useState(false);
   const [statusActionMessage, setStatusActionMessage] = useState("");
+  const [ticketMessages, setTicketMessages] = useState<TicketMessage[]>([]);
+  const [messageContent, setMessageContent] = useState("");
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [isSendingMessage, setIsSendingMessage] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [assignmentAdvice, setAssignmentAdvice] = useState<AssignmentAdvice | null>(null);
   const [isLoadingAssignmentAdvice, setIsLoadingAssignmentAdvice] = useState(false);
@@ -405,6 +416,40 @@ export default function HomePage() {
     consultants,
   ]);
 
+  useEffect(() => {
+    if (!authReady || !currentUser || !selectedTicket?.id) {
+      setTicketMessages([]);
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoadingMessages(true);
+
+    void apiJson<TicketMessage[]>(`/tickets/${selectedTicket.id}/messages`)
+      .then((loadedMessages) => {
+        if (!cancelled) {
+          setTicketMessages(loadedMessages);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setMessage(
+            error instanceof Error ? error.message : "Impossible de charger la conversation"
+          );
+          setTicketMessages([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoadingMessages(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authReady, currentUser, selectedTicket?.id]);
+
   async function createTicket(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -539,6 +584,33 @@ export default function HomePage() {
       await loadTickets(role);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Impossible d'enregistrer le compte rendu");
+    }
+  }
+
+  async function sendMessage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!selectedTicket || !messageContent.trim() || isSendingMessage) {
+      return;
+    }
+
+    setIsSendingMessage(true);
+
+    try {
+      const createdMessage = await apiJson<TicketMessage>(
+        `/tickets/${selectedTicket.id}/messages`,
+        {
+          method: "POST",
+          body: JSON.stringify({ contenu: messageContent.trim() }),
+        }
+      );
+      setTicketMessages((current) => [...current, createdMessage]);
+      setMessageContent("");
+      setMessage("Message envoyé");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Impossible d'envoyer le message");
+    } finally {
+      setIsSendingMessage(false);
     }
   }
 
@@ -1211,6 +1283,58 @@ export default function HomePage() {
                     </div>
                   </section>
                 )}
+
+                <section className="tool-panel wide conversation-panel">
+                  <div className="panel-heading">
+                    <h3>Conversation du ticket</h3>
+                    <span>{ticketMessages.length} message(s)</span>
+                  </div>
+                  <div aria-live="polite" className="message-list">
+                    {isLoadingMessages ? (
+                      <p className="empty-text">Chargement de la conversation...</p>
+                    ) : ticketMessages.length ? (
+                      ticketMessages.map((ticketMessage) => (
+                        <article
+                          className={`message-bubble ${
+                            ticketMessage.auteur.id === currentUser.id ? "own" : ""
+                          }`}
+                          key={ticketMessage.id}
+                        >
+                          <div className="message-meta">
+                            <strong>{userName(ticketMessage.auteur)}</strong>
+                            <span>{ROLE_LABEL[ticketMessage.auteur.role]}</span>
+                            <time>{formatDate(ticketMessage.dateCreation)}</time>
+                          </div>
+                          <p>{ticketMessage.contenu}</p>
+                        </article>
+                      ))
+                    ) : (
+                      <p className="empty-text">Aucun message. Commencez la conversation.</p>
+                    )}
+                  </div>
+                  <form className="message-composer" onSubmit={sendMessage}>
+                    <textarea
+                      aria-label="Nouveau message"
+                      disabled={selectedTicket.statut === "CLOTURE" || isSendingMessage}
+                      onChange={(event) => setMessageContent(event.target.value)}
+                      placeholder="Écrivez un message au client ou au consultant..."
+                      required
+                      rows={3}
+                      value={messageContent}
+                    />
+                    <button
+                      className="primary-button"
+                      disabled={
+                        !messageContent.trim() ||
+                        selectedTicket.statut === "CLOTURE" ||
+                        isSendingMessage
+                      }
+                      type="submit"
+                    >
+                      {isSendingMessage ? "Envoi..." : "Envoyer le message"}
+                    </button>
+                  </form>
+                </section>
 
                 <section
                   className={`tool-panel wide ${
