@@ -15,7 +15,7 @@ export default function VerifyEmailPage() {
       return;
     }
 
-    fetch(`http://localhost:3001/auth/verify-email?token=${encodeURIComponent(token)}`)
+    fetch(`/api/auth/verify-email?token=${encodeURIComponent(token)}`)
       .then(async (response) => {
         const data = await response.json();
         if (!response.ok || !data.verified) throw new Error(data.message ?? "This verification link is invalid or expired.");

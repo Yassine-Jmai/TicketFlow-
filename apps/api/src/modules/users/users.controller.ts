@@ -11,7 +11,7 @@ import {
   UsePipes,
   ValidationPipe
 } from "@nestjs/common";
-import { Role } from "@prisma/client";
+import { Role, StatutTicket } from "@prisma/client";
 import { AuthGuard } from "@nestjs/passport";
 import type { Request } from "express";
 import { PrismaService } from "../../prisma/prisma.service";
@@ -39,8 +39,8 @@ export class UsersController {
   }
 
   @Get("consultants")
-  getConsultants() {
-    return this.prisma.utilisateur.findMany({
+  async getConsultants() {
+    const consultants = await this.prisma.utilisateur.findMany({
       where: { role: Role.CONSULTANT, deletedAt: null },
       orderBy: [{ nom: "asc" }, { prenom: "asc" }],
       select: {
@@ -49,9 +49,28 @@ export class UsersController {
         prenom: true,
         email: true,
         role: true,
-        dateCreation: true
+        dateCreation: true,
+        ticketsAssigne: {
+          where: {
+            archivedAt: null,
+            statut: {
+              in: [
+                StatutTicket.NOUVEAU,
+                StatutTicket.EN_COURS,
+                StatutTicket.EN_ATTENTE_CLIENT
+              ]
+            }
+          },
+          select: { id: true }
+        }
       }
     });
+
+    return consultants.map(({ ticketsAssigne, ...consultant }) => ({
+      ...consultant,
+      isAvailable: ticketsAssigne.length === 0,
+      activeTicketCount: ticketsAssigne.length
+    }));
   }
 
   @Get("dev-identities")

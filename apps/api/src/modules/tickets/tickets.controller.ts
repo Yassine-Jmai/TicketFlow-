@@ -234,6 +234,22 @@ export class TicketsController {
   }
 
   /**
+   * PATCH /tickets/:id/unassign
+   * Release a consultant from an unfinished ticket.
+   * User: Administrator
+   */
+  @Patch(":id/unassign")
+  async unassignTicket(
+    @Param("id") ticketId: string,
+    @Headers() headers: Record<string, string | string[] | undefined>
+  ) {
+    return this.ticketsService.unassignTicket(
+      ticketId,
+      this.getCurrentUser(headers)
+    );
+  }
+
+  /**
    * PATCH /tickets/:id/validate
    * Validate a resolved ticket and close it
    * User: Client

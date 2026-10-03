@@ -12,7 +12,7 @@ import type {
 } from "@ticketflow/shared";
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+const API_URL = "/api";
 
 const STATUS_FLOW: Record<TicketStatus, TicketStatus[]> = {
   NOUVEAU: ["EN_COURS"],
@@ -129,6 +129,11 @@ type AssignmentRecommendation = {
     completionRate: number;
     averageResolutionHours: number | null;
   };
+};
+
+type Consultant = User & {
+  isAvailable: boolean;
+  activeTicketCount: number;
 };
 
 type AssignmentAdvice = {
@@ -252,7 +257,7 @@ export default function HomePage() {
   const [role, setRole] = useState<UserRole>("CLIENT");
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [modules, setModules] = useState<TicketModule[]>([]);
-  const [consultants, setConsultants] = useState<User[]>([]);
+  const [consultants, setConsultants] = useState<Consultant[]>([]);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [selectedTicketId, setSelectedTicketId] = useState<string>("");
@@ -277,6 +282,7 @@ export default function HomePage() {
   const [assignmentAdvice, setAssignmentAdvice] = useState<AssignmentAdvice | null>(null);
   const [isLoadingAssignmentAdvice, setIsLoadingAssignmentAdvice] = useState(false);
   const [isAssigningConsultant, setIsAssigningConsultant] = useState(false);
+  const [isUnassigningConsultant, setIsUnassigningConsultant] = useState(false);
   const createFileInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -298,7 +304,7 @@ export default function HomePage() {
   async function loadReferenceData() {
     const [moduleList, consultantList] = await Promise.all([
       requestJson<TicketModule[]>("/ticket-modules"),
-      requestJson<User[]>("/users/consultants"),
+      requestJson<Consultant[]>("/users/consultants"),
     ]);
 
     setModules(moduleList);
@@ -307,7 +313,10 @@ export default function HomePage() {
       ...current,
       moduleId: current.moduleId || moduleList[0]?.id || "",
     }));
-    setAssigneeId((current) => current || consultantList[0]?.id || "");
+    setAssigneeId(
+      (current) =>
+        current || consultantList.find((consultant) => consultant.isAvailable)?.id || ""
+    );
   }
 
   function getAuthHeaders() {
@@ -347,9 +356,17 @@ export default function HomePage() {
           : currentRole === "CONSULTANT"
             ? "/tickets/assigned"
             : "/tickets";
-      const ticketList = await apiJson<Ticket[]>(path);
+      const [ticketList, refreshedConsultants] = await Promise.all([
+        apiJson<Ticket[]>(path),
+        currentRole === "ADMINISTRATEUR"
+          ? requestJson<Consultant[]>("/users/consultants")
+          : Promise.resolve(null),
+      ]);
 
       setTickets(ticketList);
+      if (refreshedConsultants) {
+        setConsultants(refreshedConsultants);
+      }
       setSelectedTicketId((current) =>
         ticketList.some((ticket) => ticket.id === current)
           ? current
@@ -407,7 +424,11 @@ export default function HomePage() {
 
   useEffect(() => {
     setReportContent(selectedTicket?.compteRendu?.contenu ?? "");
-    setAssigneeId(selectedTicket?.assigneeId || consultants[0]?.id || "");
+    setAssigneeId(
+      selectedTicket?.assigneeId ||
+        consultants.find((consultant) => consultant.isAvailable)?.id ||
+        ""
+    );
     setAssignmentAdvice(null);
   }, [
     selectedTicket?.id,
@@ -648,6 +669,31 @@ export default function HomePage() {
     }
   }
 
+  async function unassignConsultant() {
+    if (!selectedTicket?.assigneeId || isUnassigningConsultant) {
+      return;
+    }
+
+    setIsUnassigningConsultant(true);
+
+    try {
+      await apiJson<Ticket>(`/tickets/${selectedTicket.id}/unassign`, {
+        method: "PATCH",
+      });
+      setAssignmentAdvice(null);
+      await loadTickets(role);
+      setMessage(`${selectedTicket.numero} est maintenant sans consultant`);
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Impossible de libérer le consultant"
+      );
+    } finally {
+      setIsUnassigningConsultant(false);
+    }
+  }
+
   async function loadAssignmentAdvice() {
     if (!selectedTicket) {
       return;
@@ -801,6 +847,13 @@ export default function HomePage() {
   const canAssignTicket = role === "ADMINISTRATEUR";
   const isSelectedConsultantAssigned = Boolean(
     selectedTicket?.assigneeId && selectedTicket.assigneeId === assigneeId
+  );
+  const isSelectedConsultantAvailable = Boolean(
+    consultants.find((consultant) => consultant.id === assigneeId)?.isAvailable
+  );
+  const isTicketAssignable = Boolean(
+    selectedTicket &&
+      ["NOUVEAU", "EN_COURS", "EN_ATTENTE_CLIENT"].includes(selectedTicket.statut)
   );
   const canArchiveTicket =
     role === "ADMINISTRATEUR" && selectedTicket?.statut !== "CLOTURE";
@@ -1124,7 +1177,7 @@ export default function HomePage() {
                   </div>
                 ) : null}
 
-                {canAssignTicket ? (
+                {canAssignTicket && isTicketAssignable ? (
                   <form className="tool-panel" onSubmit={assignTicket}>
                     <div className="panel-heading">
                       <h3>Affectation intelligente</h3>
@@ -1134,8 +1187,11 @@ export default function HomePage() {
                       className="secondary-button ai-advice-button"
                       disabled={
                         isLoadingAssignmentAdvice ||
-                        selectedTicket.statut === "CLOTURE" ||
-                        consultants.length === 0
+                        !consultants.some(
+                          (consultant) =>
+                            consultant.isAvailable ||
+                            consultant.id === selectedTicket.assigneeId
+                        )
                       }
                       onClick={() => void loadAssignmentAdvice()}
                       type="button"
@@ -1217,13 +1273,23 @@ export default function HomePage() {
                     <label>
                       Consultant
                       <select
-                        disabled={selectedTicket.statut === "CLOTURE"}
+                        disabled={!isTicketAssignable}
                         onChange={(event) => setAssigneeId(event.target.value)}
                         value={assigneeId}
                       >
                         {consultants.map((consultant) => (
-                          <option key={consultant.id} value={consultant.id}>
-                            {userName(consultant)}
+                          <option
+                            disabled={
+                              !consultant.isAvailable &&
+                              selectedTicket.assigneeId !== consultant.id
+                            }
+                            key={consultant.id}
+                            value={consultant.id}
+                          >
+                            {userName(consultant)} —{" "}
+                            {consultant.isAvailable
+                              ? "Disponible"
+                              : `Occupé (${consultant.activeTicketCount} ticket(s) actif(s))`}
                           </option>
                         ))}
                       </select>
@@ -1232,7 +1298,8 @@ export default function HomePage() {
                       className="secondary-button"
                       disabled={
                         !assigneeId ||
-                        selectedTicket.statut === "CLOTURE" ||
+                        !isTicketAssignable ||
+                        !isSelectedConsultantAvailable ||
                         isAssigningConsultant ||
                         isSelectedConsultantAssigned
                       }
@@ -1244,6 +1311,18 @@ export default function HomePage() {
                           ? "Déjà affecté"
                           : "Affecter"}
                     </button>
+                    {selectedTicket.assigneeId ? (
+                      <button
+                        className="danger-button"
+                        disabled={isAssigningConsultant || isUnassigningConsultant}
+                        onClick={() => void unassignConsultant()}
+                        type="button"
+                      >
+                        {isUnassigningConsultant
+                          ? "Libération..."
+                          : "Libérer le consultant"}
+                      </button>
+                    ) : null}
                   </form>
                 ) : null}
 

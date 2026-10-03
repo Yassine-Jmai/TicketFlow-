@@ -25,7 +25,7 @@ export default function ProfilePage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+  const apiBaseUrl = "/api";
 
   useEffect(() => {
     const savedUser = window.localStorage.getItem("ticketflow_user");

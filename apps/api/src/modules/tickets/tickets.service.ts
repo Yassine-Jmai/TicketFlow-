@@ -25,6 +25,12 @@ const ALLOWED_STATUS_TRANSITIONS: Record<StatutTicket, StatutTicket[]> = {
   [StatutTicket.CLOTURE]: [],
 };
 
+const ACTIVE_TICKET_STATUSES: StatutTicket[] = [
+  StatutTicket.NOUVEAU,
+  StatutTicket.EN_COURS,
+  StatutTicket.EN_ATTENTE_CLIENT,
+];
+
 type UploadedTicketFile = {
   originalname: string;
   path: string;
@@ -482,8 +488,8 @@ export class TicketsService {
       throw new NotFoundException("Ticket not found");
     }
 
-    if (ticket.statut === StatutTicket.CLOTURE) {
-      throw new BadRequestException("A closed ticket cannot be assigned");
+    if (!ACTIVE_TICKET_STATUSES.includes(ticket.statut)) {
+      throw new BadRequestException("A completed ticket cannot be assigned");
     }
 
     const consultants = await this.prisma.utilisateur.findMany({
@@ -511,7 +517,16 @@ export class TicketsService {
       orderBy: [{ prenom: "asc" }, { nom: "asc" }],
     });
 
-    if (consultants.length === 0) {
+    const availableConsultants = consultants.filter((consultant) =>
+      consultant.ticketsAssigne.every(
+        (assignedTicket) =>
+          assignedTicket.id === ticket.id ||
+          Boolean(assignedTicket.archivedAt) ||
+          !ACTIVE_TICKET_STATUSES.includes(assignedTicket.statut)
+      )
+    );
+
+    if (availableConsultants.length === 0) {
       return {
         aiEnhanced: false,
         model: null,
@@ -525,23 +540,17 @@ export class TicketsService {
       StatutTicket.RESOLU,
       StatutTicket.CLOTURE,
     ]);
-    const activeStatuses = new Set<StatutTicket>([
-      StatutTicket.NOUVEAU,
-      StatutTicket.EN_COURS,
-      StatutTicket.EN_ATTENTE_CLIENT,
-    ]);
-    const activeCounts = consultants.map((consultant) =>
+    const activeCounts = availableConsultants.map((consultant) =>
       consultant.ticketsAssigne.filter(
         (assignedTicket) =>
-          !assignedTicket.archivedAt && activeStatuses.has(assignedTicket.statut)
+          assignedTicket.id !== ticket.id &&
+          !assignedTicket.archivedAt &&
+          ACTIVE_TICKET_STATUSES.includes(assignedTicket.statut)
       ).length
     );
-    const estimatedCapacity = Math.max(
-      3,
-      Math.ceil(activeCounts.reduce((sum, count) => sum + count, 0) / consultants.length) + 2
-    );
+    const estimatedCapacity = 1;
 
-    const candidates = consultants.map((consultant, index) => {
+    const candidates = availableConsultants.map((consultant, index) => {
       const historicalTickets = consultant.ticketsAssigne.filter(
         (assignedTicket) => assignedTicket.id !== ticket.id
       );
@@ -998,6 +1007,10 @@ export class TicketsService {
     this.ensureTicketAccess(ticketToAssign, actor);
     this.ensureTicketIsMutable(ticketToAssign.statut, ticketToAssign.archivedAt);
 
+    if (!ACTIVE_TICKET_STATUSES.includes(ticketToAssign.statut)) {
+      throw new BadRequestException("A completed ticket cannot be assigned");
+    }
+
     // Verify consultant exists
     const consultant = await this.prisma.utilisateur.findUnique({
       where: { id: consultantId },
@@ -1009,6 +1022,22 @@ export class TicketsService {
 
     if (consultant.role !== Role.CONSULTANT) {
       throw new BadRequestException("Selected user must have the CONSULTANT role");
+    }
+
+    const activeAssignment = await this.prisma.ticket.findFirst({
+      where: {
+        id: { not: ticketId },
+        assigneeId: consultantId,
+        archivedAt: null,
+        statut: { in: ACTIVE_TICKET_STATUSES },
+      },
+      select: { numero: true },
+    });
+
+    if (activeAssignment) {
+      throw new BadRequestException(
+        `This consultant is already assigned to active ticket ${activeAssignment.numero}`
+      );
     }
 
     const ticket = await this.prisma.ticket.update({
@@ -1029,6 +1058,45 @@ export class TicketsService {
     });
 
     return ticket;
+  }
+
+  /**
+   * Release an active ticket from its consultant so it can be reassigned.
+   */
+  async unassignTicket(ticketId: string, actor: TicketActor) {
+    this.ensureRole(actor, [Role.ADMINISTRATEUR]);
+
+    const ticketToUnassign = await this.getTicketById(ticketId);
+    this.ensureTicketAccess(ticketToUnassign, actor);
+    this.ensureTicketIsMutable(
+      ticketToUnassign.statut,
+      ticketToUnassign.archivedAt
+    );
+
+    if (!ACTIVE_TICKET_STATUSES.includes(ticketToUnassign.statut)) {
+      throw new BadRequestException("A completed ticket cannot be unassigned");
+    }
+
+    if (!ticketToUnassign.assigneeId) {
+      throw new BadRequestException("This ticket has no assigned consultant");
+    }
+
+    return this.prisma.ticket.update({
+      where: { id: ticketId },
+      data: {
+        assigneeId: null,
+        dateModification: new Date(),
+      },
+      include: {
+        module: true,
+        client: {
+          select: { id: true, email: true, nom: true, prenom: true },
+        },
+        assignee: {
+          select: { id: true, email: true, nom: true, prenom: true },
+        },
+      },
+    });
   }
 
   /**

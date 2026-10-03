@@ -20,7 +20,7 @@ export default function ClientManagementPage() {
   const [notice, setNotice] = useState("");
   const [savingRoleId, setSavingRoleId] = useState("");
   const [deletingUserId, setDeletingUserId] = useState("");
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+  const apiBaseUrl = "/api";
 
   useEffect(() => {
     const savedUser = window.localStorage.getItem("ticketflow_user");
