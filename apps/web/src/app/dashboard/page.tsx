@@ -16,7 +16,7 @@ const API_URL = "/api";
 
 const STATUS_FLOW: Record<TicketStatus, TicketStatus[]> = {
   NOUVEAU: ["EN_COURS"],
-  EN_COURS: ["EN_ATTENTE_CLIENT", "RESOLU"],
+  EN_COURS: ["RESOLU"],
   EN_ATTENTE_CLIENT: ["EN_COURS"],
   RESOLU: ["CLOTURE"],
   CLOTURE: [],
@@ -51,7 +51,7 @@ const ROLE_QUEUE_LABEL: Record<UserRole, string> = {
 const STATUS_ACTION_LABEL: Record<TicketStatus, string> = {
   NOUVEAU: "Prendre en charge",
   EN_COURS: "Reprendre",
-  EN_ATTENTE_CLIENT: "Demander des informations",
+  EN_ATTENTE_CLIENT: "Reprendre le traitement",
   RESOLU: "Marquer résolu",
   CLOTURE: "Clôturer",
 };
@@ -78,13 +78,6 @@ type HistoryEntry = {
   nouveauStatut: TicketStatus;
   dateChangement: string;
   auteur?: Pick<User, "id" | "email" | "nom" | "prenom">;
-};
-
-type TicketMessage = {
-  id: string;
-  contenu: string;
-  dateCreation: string;
-  auteur: Pick<User, "id" | "email" | "nom" | "prenom"> & { role: UserRole };
 };
 
 type Ticket = {
@@ -214,10 +207,6 @@ function statusActionLabel(currentStatus: TicketStatus, nextStatus: TicketStatus
     return "Prendre en charge";
   }
 
-  if (nextStatus === "EN_ATTENTE_CLIENT") {
-    return "Demander des informations";
-  }
-
   if (currentStatus === "EN_ATTENTE_CLIENT" && nextStatus === "EN_COURS") {
     return "Reprendre le traitement";
   }
@@ -274,10 +263,7 @@ export default function HomePage() {
   const [message, setMessage] = useState("Prêt");
   const [isLoading, setIsLoading] = useState(false);
   const [statusActionMessage, setStatusActionMessage] = useState("");
-  const [ticketMessages, setTicketMessages] = useState<TicketMessage[]>([]);
-  const [messageContent, setMessageContent] = useState("");
-  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
-  const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [isReportEditorOpen, setIsReportEditorOpen] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [assignmentAdvice, setAssignmentAdvice] = useState<AssignmentAdvice | null>(null);
   const [isLoadingAssignmentAdvice, setIsLoadingAssignmentAdvice] = useState(false);
@@ -287,7 +273,10 @@ export default function HomePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const selectedTicket = useMemo(
-    () => tickets.find((ticket) => ticket.id === selectedTicketId) ?? tickets[0],
+    () =>
+      selectedTicketId
+        ? tickets.find((ticket) => ticket.id === selectedTicketId)
+        : tickets[0],
     [selectedTicketId, tickets]
   );
 
@@ -430,46 +419,13 @@ export default function HomePage() {
         ""
     );
     setAssignmentAdvice(null);
+    setIsReportEditorOpen(false);
   }, [
     selectedTicket?.id,
     selectedTicket?.compteRendu?.contenu,
     selectedTicket?.assigneeId,
     consultants,
   ]);
-
-  useEffect(() => {
-    if (!authReady || !currentUser || !selectedTicket?.id) {
-      setTicketMessages([]);
-      return;
-    }
-
-    let cancelled = false;
-    setIsLoadingMessages(true);
-
-    void apiJson<TicketMessage[]>(`/tickets/${selectedTicket.id}/messages`)
-      .then((loadedMessages) => {
-        if (!cancelled) {
-          setTicketMessages(loadedMessages);
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setMessage(
-            error instanceof Error ? error.message : "Impossible de charger la conversation"
-          );
-          setTicketMessages([]);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsLoadingMessages(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [authReady, currentUser, selectedTicket?.id]);
 
   async function createTicket(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -545,6 +501,19 @@ export default function HomePage() {
     }
   }
 
+  function handleStatusAction(nextStatus: TicketStatus) {
+    if (
+      nextStatus === "RESOLU" &&
+      !selectedTicket?.compteRendu?.contenu?.trim()
+    ) {
+      setIsReportEditorOpen(true);
+      setStatusActionMessage("Ajoutez le compte rendu avant de continuer.");
+      return;
+    }
+
+    void changeStatus(nextStatus);
+  }
+
   async function closeAsClient() {
     if (!selectedTicket) {
       return;
@@ -605,33 +574,6 @@ export default function HomePage() {
       await loadTickets(role);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Impossible d'enregistrer le compte rendu");
-    }
-  }
-
-  async function sendMessage(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    if (!selectedTicket || !messageContent.trim() || isSendingMessage) {
-      return;
-    }
-
-    setIsSendingMessage(true);
-
-    try {
-      const createdMessage = await apiJson<TicketMessage>(
-        `/tickets/${selectedTicket.id}/messages`,
-        {
-          method: "POST",
-          body: JSON.stringify({ contenu: messageContent.trim() }),
-        }
-      );
-      setTicketMessages((current) => [...current, createdMessage]);
-      setMessageContent("");
-      setMessage("Message envoyé");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Impossible d'envoyer le message");
-    } finally {
-      setIsSendingMessage(false);
     }
   }
 
@@ -773,11 +715,7 @@ export default function HomePage() {
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
-      setMessage(
-        isClientResponseUpload
-          ? "Réponse envoyée, le ticket repasse en cours"
-          : "Pièce jointe envoyée"
-      );
+      setMessage("Pièce jointe envoyée");
       await loadTickets(role);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Impossible d'envoyer la pièce jointe");
@@ -860,17 +798,11 @@ export default function HomePage() {
   const canEditReport = role === "CONSULTANT";
   const canValidateTicket = role === "CLIENT" && selectedTicket?.statut === "RESOLU";
   const canRejectTicket = role === "CLIENT" && selectedTicket?.statut === "RESOLU";
-  const isClientResponseUpload =
-    role === "CLIENT" && selectedTicket?.statut === "EN_ATTENTE_CLIENT";
   const hasSavedReport = Boolean(selectedTicket?.compteRendu?.contenu?.trim());
-  const reportTitle = isClientResponseUpload
-    ? "Demande du consultant"
-    : "Compte rendu d'intervention";
-  const reportState = isClientResponseUpload
-    ? "Réponse attendue"
-    : selectedTicket?.compteRendu
-      ? "Enregistré"
-      : "Requis pour attente/résolution";
+  const reportState = selectedTicket?.compteRendu
+    ? "Enregistré"
+    : "Requis pour résolution";
+  const showReportEditor = canEditReport && (isReportEditorOpen || hasSavedReport);
   const canUploadAttachment =
     Boolean(selectedTicket) && selectedTicket?.statut !== "CLOTURE";
 
@@ -1123,12 +1055,9 @@ export default function HomePage() {
                         ? nextStatuses.map((status) => (
                             <button
                               className="primary-button"
-                              disabled={isUpdatingStatus || (
-                                (status === "EN_ATTENTE_CLIENT" || status === "RESOLU") &&
-                                !hasSavedReport
-                              )}
+                              disabled={isUpdatingStatus}
                               key={status}
-                              onClick={() => void changeStatus(status)}
+                              onClick={() => handleStatusAction(status)}
                               type="button"
                             >
                               {isUpdatingStatus
@@ -1168,7 +1097,7 @@ export default function HomePage() {
                       ) : null}
                       {canChangeStatus &&
                       nextStatuses.some(
-                        (status) => status === "EN_ATTENTE_CLIENT" || status === "RESOLU"
+                        (status) => status === "RESOLU"
                       ) &&
                       !hasSavedReport ? (
                         <p className="empty-text">Compte rendu requis.</p>
@@ -1326,10 +1255,10 @@ export default function HomePage() {
                   </form>
                 ) : null}
 
-                {canEditReport ? (
+                {showReportEditor ? (
                   <form className="tool-panel wide" onSubmit={saveReport}>
                     <div className="panel-heading">
-                      <h3>Compte rendu / demande client</h3>
+                      <h3>Compte rendu d'intervention</h3>
                       <span>{reportState}</span>
                     </div>
                     <textarea
@@ -1348,13 +1277,9 @@ export default function HomePage() {
                     </button>
                   </form>
                 ) : (
-                  <section
-                    className={`tool-panel wide ${
-                      isClientResponseUpload ? "attention-panel" : ""
-                    }`}
-                  >
+                  <section className="tool-panel wide">
                     <div className="panel-heading">
-                      <h3>{reportTitle}</h3>
+                      <h3>Compte rendu d'intervention</h3>
                       <span>{reportState}</span>
                     </div>
                     <div className="report-display">
@@ -1363,74 +1288,10 @@ export default function HomePage() {
                   </section>
                 )}
 
-                <section className="tool-panel wide conversation-panel">
+                <section className="tool-panel wide">
                   <div className="panel-heading">
-                    <h3>Conversation du ticket</h3>
-                    <span>{ticketMessages.length} message(s)</span>
-                  </div>
-                  <div aria-live="polite" className="message-list">
-                    {isLoadingMessages ? (
-                      <p className="empty-text">Chargement de la conversation...</p>
-                    ) : ticketMessages.length ? (
-                      ticketMessages.map((ticketMessage) => (
-                        <article
-                          className={`message-bubble ${
-                            ticketMessage.auteur.id === currentUser.id ? "own" : ""
-                          }`}
-                          key={ticketMessage.id}
-                        >
-                          <div className="message-meta">
-                            <strong>{userName(ticketMessage.auteur)}</strong>
-                            <span>{ROLE_LABEL[ticketMessage.auteur.role]}</span>
-                            <time>{formatDate(ticketMessage.dateCreation)}</time>
-                          </div>
-                          <p>{ticketMessage.contenu}</p>
-                        </article>
-                      ))
-                    ) : (
-                      <p className="empty-text">Aucun message. Commencez la conversation.</p>
-                    )}
-                  </div>
-                  <form className="message-composer" onSubmit={sendMessage}>
-                    <textarea
-                      aria-label="Nouveau message"
-                      disabled={selectedTicket.statut === "CLOTURE" || isSendingMessage}
-                      onChange={(event) => setMessageContent(event.target.value)}
-                      placeholder="Écrivez un message au client ou au consultant..."
-                      required
-                      rows={3}
-                      value={messageContent}
-                    />
-                    <button
-                      className="primary-button"
-                      disabled={
-                        !messageContent.trim() ||
-                        selectedTicket.statut === "CLOTURE" ||
-                        isSendingMessage
-                      }
-                      type="submit"
-                    >
-                      {isSendingMessage ? "Envoi..." : "Envoyer le message"}
-                    </button>
-                  </form>
-                </section>
-
-                <section
-                  className={`tool-panel wide ${
-                    isClientResponseUpload ? "attention-panel" : ""
-                  }`}
-                >
-                  <div className="panel-heading">
-                    <h3>
-                      {isClientResponseUpload
-                        ? "Envoyer les éléments demandés"
-                        : "Pièces jointes"}
-                    </h3>
-                    <span>
-                      {isClientResponseUpload
-                        ? "Réponse client"
-                        : selectedTicket.pieceJointes?.length ?? 0}
-                    </span>
+                    <h3>Pièces jointes</h3>
+                    <span>{selectedTicket.pieceJointes?.length ?? 0}</span>
                   </div>
                   <form className="upload-row" onSubmit={uploadAttachment}>
                     <input
@@ -1446,7 +1307,7 @@ export default function HomePage() {
                       disabled={!uploadFile || !canUploadAttachment}
                       type="submit"
                     >
-                      {isClientResponseUpload ? "Envoyer la réponse" : "Ajouter"}
+                      Ajouter
                     </button>
                   </form>
                   <div className="attachment-list">
